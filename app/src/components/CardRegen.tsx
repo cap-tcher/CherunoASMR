@@ -1,6 +1,6 @@
 // 依角色圖＋方向提示＋標籤重新生成角色卡的空白欄位（使用者 2026-11-20：萬物之書角色卡「把欄位刪掉變空白然後根據圖片和提示重新生成欄位 跟創角的功能一樣」）。
 // 和建立角色用同一個 generateCharacter：只填空的欄位，已填的保留。
-import { CARD_TEXT_FIELDS, generateCharacter, type CardTextField } from '@cheruno/core';
+import { CARD_TEXT_FIELDS, characterContext, characterHaystack, generateCharacter, type CardTextField } from '@cheruno/core';
 import { useState } from 'react';
 import { imageToDataUrl, isKey } from '../library.ts';
 import { traced } from '../requestLog.ts';
@@ -13,6 +13,30 @@ export const DIR: [string, string[]][] = [
   ['氣質', ['溫柔', '愛捉弄人', '慵懶', '元氣', '冷淡但體貼']],
   ['ASMR', ['耳かき', '添い寝', '囁き多め', '寝かしつけ', '雨音']],
 ];
+
+/**
+ * 建立角色一起帶的資料（[[PLAN_創角帶更多資料]]）：主角、情境、世界觀、提到的其他角色、圖鑑、回憶、開場劇本、親密劇本。
+ * 情境、世界觀、圖鑑、回憶照萬物之書的啟用開關（和聆聽時一致）；建立角色與萬物之書「重新生成欄位」共用
+ */
+export function creationExtras(data: AppData, r: { direction: string; tags: string[]; current: Partial<Record<CardTextField, string>> }, selfId: string | null) {
+  const scene = data.optOn.scene ? (data.scenes.find((x) => x.id === data.activeSceneId) ?? null) : null;
+  const ctx = characterContext(
+    {
+      haystack: characterHaystack(r),
+      selfId,
+      characters: data.characters,
+      protagonist: data.protagonist,
+      scene: scene ? { name: scene.name, desc: scene.desc } : null,
+      world: data.optOn.world && data.world.trim() ? data.world : null,
+      glossary: data.optOn.glossary ? data.glossary : null,
+      chapters: data.optOn.memory ? data.chapters : null,
+      opening: data.prompts.opening,
+      intimacyScript: data.intimacy.script,
+    },
+    data.templates.segment,
+  );
+  return { listener: ctx.listener, context: ctx };
+}
 
 export function CardRegen(props: { data: AppData; c: Character; onMerged: (fields: Record<CardTextField, string>) => void; toast: (m: string, bad?: boolean) => void }) {
   const { data, c } = props;
@@ -36,7 +60,7 @@ export function CardRegen(props: { data: AppData; c: Character; onMerged: (field
         fetchFn: traced('角色卡'),
         model: s.model,
         templates: data.templates.character,
-        request: { direction, tags, imageDataUrl, current, secretTemplate: data.secretTemplate, listener: data.protagonist.reading ? `${data.protagonist.name}（${data.protagonist.reading}）` : data.protagonist.name },
+        request: { direction, tags, imageDataUrl, current, secretTemplate: data.secretTemplate, ...creationExtras(data, { direction, tags, current }, c.id) },
       });
       props.onMerged(merged);
       props.toast(`已重新生成空白欄位（保留你填的 ${kept} 欄）`);

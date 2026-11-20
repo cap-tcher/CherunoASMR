@@ -88,6 +88,8 @@ describe('buildMessages', () => {
     // 稱呼在角色卡裡、緊接在關係後；聽者段落在角色段落前（2026-11-20）
     expect(text).toMatch(/聴き手との関係：[^\n]*\n聴き手の呼び方：テツくん/);
     expect(text.indexOf(T.secListener)).toBeLessThan(text.indexOf(T.secCharacter));
+    expect(text).toContain('名前：澪（みお）'); // 名稱已含讀み不再重複
+    expect(text).not.toContain('（みお）（みお）');
     expect(buildMessages(input({ character: { ...MIO, callName: 'お兄さん' } }), T)[0]!.content as string).toContain('聴き手の呼び方：お兄さん');
     expect(text).toContain('被依賴 +3～+8');
     expect(text).toContain('再撒嬌一點');

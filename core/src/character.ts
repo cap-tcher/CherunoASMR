@@ -3,6 +3,7 @@
 import { parseModelJson, streamChatRetry, type LlmEndpoint } from './llm.ts';
 import { CARD_TEXT_FIELDS, mergeKeepFilled, type CardTextField, type ChatMessage } from './prompt.ts';
 import { fill, type PromptTemplates } from './templates.ts';
+import type { CharacterContext } from './characterContext.ts';
 
 export type CharacterTemplates = PromptTemplates['character'];
 
@@ -22,16 +23,32 @@ export interface CharacterRequest {
   tags: string[];
   imageDataUrl: string | null; // data:image/...;base64,...
   current: Partial<Record<CardTextField, string>>; // 使用者已填的欄位
-  listener: string; // 聽者名字（含讀み）：她怎麼叫你（callName）要用到
+  listener: string; // 聽者（主角）的資料：她怎麼叫你（callName）要用到
   secretTemplate: string; // 秘密生成格式（系統核心 › 秘密規則）：secret 欄依此模板寫；空字串＝自由寫
+  /** 一起帶的資料（[[PLAN_創角帶更多資料]]，用 characterContext 產生）；空字串的類別整段省略 */
+  context?: Partial<Omit<CharacterContext, 'listener'>>;
+}
+
+/** 已填欄位＋方向提示＋標籤：用來找提到的其他角色、圖鑑條目、回憶 */
+export function characterHaystack(r: Pick<CharacterRequest, 'direction' | 'tags' | 'current'>): string {
+  return [r.direction, ...r.tags, ...CARD_TEXT_FIELDS.map((k) => r.current[k] ?? '')].join('\n');
 }
 
 export function buildCharacterMessages(r: CharacterRequest, t: CharacterTemplates): ChatMessage[] {
   const filled = CARD_TEXT_FIELDS.filter((k) => r.current[k]?.trim()).map((k) => `- ${k}：${r.current[k]}`);
+  const c = r.context ?? {};
+  const part = (tpl: string, key: string, v: string | undefined) => (v?.trim() ? fill(tpl, { [key]: v.trim() }) : '');
   const text = [
     t.intro,
     r.imageDataUrl ? t.withImage : '',
-    r.listener.trim() ? fill(t.listener, { listener: r.listener.trim() }) : '',
+    part(t.listener, 'listener', r.listener),
+    part(t.scene, 'scene', c.scene),
+    part(t.world, 'world', c.world),
+    part(t.others, 'others', c.others),
+    part(t.glossary, 'glossary', c.glossary),
+    part(t.memories, 'memories', c.memories),
+    part(t.opening, 'opening', c.opening),
+    part(t.intimacyScript, 'intimacyScript', c.intimacyScript),
     r.direction.trim() ? fill(t.direction, { direction: r.direction.trim() }) : '',
     r.tags.length ? fill(t.tags, { tags: r.tags.join('、') }) : '',
     filled.length ? fill(t.filled, { filled: filled.join('\n') }) : '',

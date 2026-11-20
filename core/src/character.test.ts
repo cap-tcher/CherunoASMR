@@ -36,7 +36,7 @@ describe('buildCharacterMessages', () => {
   });
   it('她怎麼叫你（callName）是角色卡欄位；請求帶聽者名字，模型才寫得出「テツくん」這類稱呼', () => {
     const m = buildCharacterMessages({ direction: '學姊', tags: [], imageDataUrl: null, current: {}, listener: 'テツ（てつ）', secretTemplate: '' }, T);
-    expect(m[1]!.content).toContain('聽者（角色說話的對象）：テツ（てつ）');
+    expect(m[1]!.content).toContain('聽者（角色說話的對象）：\nテツ（てつ）');
     expect(m[1]!.content).toContain('- callName：');
     expect(buildCharacterMessages({ direction: '學姊', tags: [], imageDataUrl: null, current: {}, listener: '', secretTemplate: '' }, T)[1]!.content).not.toContain('聽者（角色說話的對象）');
   });

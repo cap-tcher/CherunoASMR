@@ -1,0 +1,31 @@
+[project]
+name = "cheruno-rag"
+version = "0.1.0"
+description = "CherunoASMR 的 RAG 離線建置與檢索：對話資料集 → 片段 → 向量＋關鍵字索引（設定檔驅動，不寫死任何資料集）"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "httpx>=0.28",
+    "numpy>=2.0",
+    "pyyaml>=6.0",
+    "pyarrow>=17.0",
+    "huggingface_hub>=0.26",
+    "fugashi>=1.5",
+    "unidic-lite>=1.0.8",
+    "rank-bm25>=0.2.2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3"]
+
+[project.scripts]
+cheruno-rag = "cheruno_rag.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cheruno_rag"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -10,7 +10,11 @@ dependencies = [
     "numpy>=2.0",
     "soundfile>=0.12",
     "anthropic>=2.10.0",
+    "cheruno-rag",
 ]
+
+[tool.uv.sources]
+cheruno-rag = { path = "../rag", editable = true }  # 檢索程式和 rag pipeline 共用
 
 [dependency-groups]
 dev = ["pytest>=8.3"]

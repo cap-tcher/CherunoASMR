@@ -60,4 +60,9 @@ export const TEMPLATE_UPGRADES: { group: string; key: string; from: string }[] =
     "key": "listener",
     "from": "名前：{{nameWithReading}}\n呼び方：{{callName}}\n字幕での表記：{{subName}}\n性別：{{gender}}\n外見：{{appearance}}\nプロフィール：{{bio}}"
   },
+  {
+    "group": "character",
+    "key": "listener",
+    "from": "聽者（角色說話的對象）：{{listener}}"
+  },
 ];

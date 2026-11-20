@@ -1,0 +1,50 @@
+# CherunoASMR RAG 設定檔範例：複製一份改名（例：configs/my-dialogues.yaml），照註解填
+# 欄位結構不確定時：先只填 name 與 dataset，跑 inspect 看 reports/schema.json，再填 fields
+
+name: my-dialogues            # 英數字、- 和 _；輸出到 out/<name>/
+
+dataset:
+  hf_repo: ""                 # Hugging Face 資料集 id（例：作者/資料集名）；和 local 擇一
+  revision: main              # 建議改成固定的 commit sha，重跑結果才會一樣
+  include: []                 # 只下載這些檔，例：["data/*.parquet"]；空＝全部
+  local: []                   # 本機檔案或資料夾（.jsonl／.json／.parquet）
+
+fields:                       # 點號路徑；陣列元素用 role／content 取說話者與內容
+  turns: ""                   # 對話陣列的路徑，例：messages
+  role: role
+  content: content
+  system: ""                  # 獨立的系統提示欄位；空＝從 turns 裡 role 為 system_roles 的取
+  system_roles: [system]
+  id: ""                      # 空＝用內容雜湊當 id
+  meta: {}                    # 保留成 metadata 的欄位，例：{scene: setting.scene}
+
+filter: []                    # 篩選規則（依序套用；空＝全部保留）。可用：
+                              #   {type: min_chars, value: 200}    {type: max_chars, value: 20000}
+                              #   {type: min_turns, value: 2}      {type: max_turns, value: 200}
+                              #   {type: dedupe}
+                              #   {type: require_meta, keys: [scene]}
+                              #   {type: where, key: scene, equals: 夜, negate: false}（也可用 in: [...]、contains: ...）
+                              #   {type: regex_exclude, pattern: "...", scope: all}（scope：all｜system｜turns｜meta:<鍵>）
+                              #   {type: regex_include, pattern: "...", scope: all}
+                              #   每條可加 name: 自訂名稱（報告用）
+
+chunk:
+  mode: conversation          # conversation：整段一片，超過 max_chars 才切｜window：固定輪數視窗
+  turns: 6                    # window 模式每片幾輪
+  stride: 3                   # window 模式每次往後移幾輪（小於 turns 就會重疊）
+  max_chars: 800              # 片段內容上限
+  header_chars: 200           # 表頭放系統提示的前幾字（0＝不放）
+  header_fields: []           # 表頭放哪些 meta 欄位
+  role_labels: {}             # 說話者顯示名稱，例：{user: 聽者, assistant: 角色}
+
+embed:
+  backend: lmstudio           # lmstudio：LM Studio 的 /v1/embeddings｜none：只用關鍵字（search.mode 要設 keyword）
+  base_url: http://127.0.0.1:1234/v1
+  model: text-embedding-bge-m3
+  batch: 32
+
+search:
+  mode: hybrid                # hybrid（向量＋關鍵字）｜vector｜keyword
+  vector_weight: 1.0
+  keyword_weight: 1.0
+  rrf_k: 60

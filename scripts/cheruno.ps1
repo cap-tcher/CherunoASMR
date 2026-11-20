@@ -5,7 +5,8 @@
 #   cheruno.ps1 start [setup] [lan]   第一次會檢查並安裝；setup＝重新選要裝哪些語音引擎；lan＝讓同一個網路的平板連
 #   cheruno.ps1 stop                  停掉這個資料夾開的所有程式
 #   cheruno.ps1 update                停掉 → 更新程式 → 更新依賴
-param([Parameter(Position = 0)][ValidateSet('start', 'stop', 'update')][string]$Mode = 'start', [Parameter(ValueFromRemainingArguments = $true)][string[]]$Flags = @())
+#   cheruno.ps1 rag <指令> [參數]      建自己的參考範例索引（rag\README.md）：在 data\rag 執行 cheruno-rag，輸出到 data\rag\out\<名稱>\
+param([Parameter(Position = 0)][ValidateSet('start', 'stop', 'update', 'rag')][string]$Mode = 'start', [Parameter(ValueFromRemainingArguments = $true)][string[]]$Flags = @())
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -317,8 +318,24 @@ function Update-Repo {
     Say '更新好了：執行 startserver.bat 開啟' 'Green'
 }
 
+function Invoke-Rag([string[]]$RagArgs) {
+    # 用音訊服務的環境（cheruno-rag 是它的依賴）；還沒裝好就先跑 startserver.bat
+    if (-not (Test-Path $Uv) -or -not (Test-Path (Join-Path $Repo 'audio\.venv'))) { Fail '還沒安裝：先執行一次 startserver.bat' }
+    Use-RepoEnv
+    $work = Join-Path $Data 'rag'
+    New-Item -ItemType Directory -Force (Join-Path $work 'configs') | Out-Null
+    Push-Location $work
+    try {
+        & $Uv run --project (Join-Path $Repo 'audio') --frozen --no-dev cheruno-rag @RagArgs
+        $code = $LASTEXITCODE
+    }
+    finally { Pop-Location }
+    exit $code
+}
+
 switch ($Mode) {
     'start' { Install-All ($Flags -contains 'setup'); Start-All ($Flags -contains 'lan') }
     'stop' { Stop-All }
     'update' { Update-Repo }
+    'rag' { Invoke-Rag $Flags }
 }

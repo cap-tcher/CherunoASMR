@@ -91,6 +91,50 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
   const [ragCols, setRagCols] = useState<{ name: string; chunks: number; embed: { backend: string; model: string | null } }[] | null>(null);
   const [ragErr, setRagErr] = useState('');
   const [ragAbsent, setRagAbsent] = useState(false); // 音訊服務沒有 /rag（公開版目前不附 RAG）
+  const [ragBusy, setRagBusy] = useState(''); // 匯入中的說明（空＝沒在匯入）
+  const ragFile = useRef<HTMLInputElement>(null);
+  const ragBase = () => s.audioBase.replace(/\/+$/, '');
+  const detailOf = async (r: Response) => {
+    const t = await r.text();
+    try {
+      return String((JSON.parse(t) as { detail?: unknown }).detail ?? t);
+    } catch {
+      return t || `HTTP ${r.status}`;
+    }
+  };
+  /** 匯入索引（[[PLAN_RAG索引匯入]]）：zip 檔名＝索引名稱；音訊服務解壓、確認讀得起來才放進 data\rag\out */
+  async function importRag(f: File | undefined) {
+    if (!f) return;
+    const name = f.name.replace(/\.zip$/i, '');
+    if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+      setRagErr(`zip 的檔名就是索引名稱，只能用英數字、- 和 _：「${f.name}」改個檔名再匯入`);
+      return;
+    }
+    setRagErr('');
+    setRagBusy(`正在匯入 ${name}（${(f.size / 1048576).toFixed(1)} MB）…`);
+    try {
+      const r = await fetch(`${ragBase()}/rag/import?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'content-type': 'application/zip' }, body: f });
+      if (!r.ok) throw new Error(await detailOf(r));
+      const j = (await r.json()) as { chunks: number };
+      refreshRag();
+      setRag('collection', name);
+      props.toast(`已匯入索引 ${name}（${j.chunks} 個片段），已選用`);
+    } catch (e) {
+      setRagErr(`匯入失敗：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRagBusy('');
+    }
+  }
+  async function openRagFolder() {
+    setRagErr('');
+    try {
+      const r = await fetch(`${ragBase()}/rag/open-folder`, { method: 'POST' });
+      if (!r.ok) throw new Error(await detailOf(r));
+      props.toast('已用檔案總管開啟索引資料夾；放好索引後按「重新整理」');
+    } catch (e) {
+      setRagErr(`開不了資料夾：${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
   const refreshRag = () => {
     setRagErr('');
     fetch(`${s.audioBase.replace(/\/+$/, '')}/rag/collections`)
@@ -628,8 +672,8 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
             </Sec>
 
             {!ragAbsent && (
-            <Sec id="gen-rag" title="參考範例（RAG）" desc="生成每一段前，從本機索引找幾段相近的對話片段放進提示詞，當語氣與表達的參考。索引用 rag/ 建（說明見 rag/README.md）。">
-              <Field label="索引" hint={ragCols && !ragCols.length ? '還沒有索引：用 rag/ 建好，放在存檔資料夾旁的 data/rag/（或 cheruno.local.json 的 ragDir）。' : '選「不使用」就不檢索。'}>
+            <Sec id="gen-rag" title="參考範例（RAG）" desc="生成每一段前，從本機索引找幾段相近的對話片段放進提示詞，當語氣與表達的參考。資料自己準備，用 rag.bat 建索引（說明見 README 與 rag/README.md）；沒有選索引就不檢索，生成照常。">
+              <Field label="索引" hint={ragCols && !ragCols.length ? '還沒有索引：用 rag.bat 建自己的索引（步驟見 README 的「參考範例（RAG）」），建好會在 data\\rag\\out\\<名稱>\\，按「重新整理」就會列出來。' : '選「不使用」就不檢索。'}>
                 <div className="lin-actions">
                   <select className="select" value={s.rag.collection} onChange={(e) => setRag('collection', e.target.value)} style={{ maxWidth: 320 }}>
                     <option value="">不使用</option>
@@ -643,9 +687,30 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
                   <button type="button" className="btn sm ghost" onClick={refreshRag}>
                     重新整理
                   </button>
-                  {ragErr && <span className="hint bad-t">{ragErr}</span>}
                 </div>
               </Field>
+              <Field label="加入索引" hint="別處建好的索引：把 data\rag\out\<名稱> 資料夾壓成 zip 匯入，zip 的檔名就是索引名稱；或開資料夾把索引資料夾直接放進去。">
+                <div className="lin-actions">
+                  <button type="button" className="btn sm" disabled={!!ragBusy} onClick={() => ragFile.current?.click()}>
+                    {ragBusy ? '匯入中' : '匯入索引（zip）'}
+                  </button>
+                  <button type="button" className="btn sm ghost" onClick={() => void openRagFolder()}>
+                    開啟索引資料夾
+                  </button>
+                  <input
+                    ref={ragFile}
+                    type="file"
+                    accept=".zip,application/zip"
+                    className="sr-only"
+                    onChange={(e) => {
+                      void importRag(e.target.files?.[0]);
+                      e.target.value = '';
+                    }}
+                  />
+                </div>
+              </Field>
+              {ragBusy && <p className="hint">{ragBusy}</p>}
+              {ragErr && <div className="note danger">{ragErr}</div>}
               {(() => {
                 const col = ragCols?.find((c) => c.name === s.rag.collection);
                 return col && col.embed.backend === 'lmstudio' ? <p className="hint">這個索引用 LM Studio 的 {col.embed.model} 做查詢向量：檢索時要載入它（約 0.8 GB 顯存，可和 LLM 同時載著）。</p> : null;

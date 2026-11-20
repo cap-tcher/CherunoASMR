@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { EMPTY_CHARACTER, makeCharId, shrinkImage, type AppData, type Character, type LockedVoice, endpointOf } from '../store.ts';
 import { Field, Outline, Sec, type OutlineCat } from '../components/Outline.tsx';
 import { imageToDataUrl, isKey, putAsset } from '../library.ts';
-import { DIR } from '../components/CardRegen.tsx';
+import { DIR, creationExtras } from '../components/CardRegen.tsx';
 import { traced } from '../requestLog.ts';
 import { READY_TIMEOUT, SERVICE_LABEL, serviceStatus, startTts, stopTts, unloadLms, waitTtsReady, type ServiceStatus, type TtsService } from '../services.ts';
 import { registerVoice, synthesize } from '../tts.ts';
@@ -173,7 +173,7 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
         fetchFn: traced('角色卡'),
         model: s.model,
         templates: data.templates.character,
-        request: { direction, tags, imageDataUrl: image, current: form, secretTemplate: data.secretTemplate, listener: data.protagonist.reading ? `${data.protagonist.name}（${data.protagonist.reading}）` : data.protagonist.name },
+        request: { direction, tags, imageDataUrl: image, current: form, secretTemplate: data.secretTemplate, ...creationExtras(data, { direction, tags, current: form }, null) },
       });
       setForm(merged);
       setGenerated(true);

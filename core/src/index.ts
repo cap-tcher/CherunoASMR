@@ -4,6 +4,7 @@ export * from './prompt.ts';
 export * from './llm.ts';
 export * from './generate.ts';
 export * from './character.ts';
+export * from './characterContext.ts';
 export * from './chapters.ts';
 export * from './rules.ts';
 export * from './templates.ts';

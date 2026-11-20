@@ -29,6 +29,7 @@
 | `startserver.bat lan` | 讓同一個網路的平板也能連（畫面會列出網址） |
 | `stopserver.bat` | 停掉這個資料夾開的所有程式（app、音訊服務、語音引擎） |
 | `update.bat` | 更新到最新版（不動你的存檔、模型、執行環境） |
+| `rag.bat` | 建自己的參考範例索引（見下面「參考範例（RAG）」） |
 
 ## 第一次使用
 
@@ -39,13 +40,41 @@
 3. 建立角色：寫聲音描述 → 用 Qwen 產生候選 → 鎖定（ZONOS 會用鎖定的候選當角色的聲音）
 4. 聆聽：開始
 
+## 參考範例（RAG）
+
+生成台詞時，可以從你自己準備的對話資料裡找幾段相近的片段，放進提示詞當語氣和表達的參考（系統核心 › 生成方式 › 參考範例）。資料由你自己準備，這個 repo 不附任何資料集；沒有索引時這個功能不會動，生成照常。
+
+建索引的步驟（指令都在這個資料夾執行，設定檔放 `data\rag\configs\`）：
+
+1. 先跑過一次 `startserver.bat`（裝好環境）
+2. 要用向量檢索：在 LM Studio 下載 Embedding 模型 `text-embedding-bge-m3`（搜尋 `bge-m3`），開著 LM Studio。只用關鍵字檢索就不需要
+3. 複製 `rag\configs\example.yaml` 到 `data\rag\configs\<名稱>.yaml`，照註解填：
+   - `name`：索引名稱（英數字、`-`、`_`）
+   - `dataset`：Hugging Face 資料集 id，或本機的 `.jsonl`／`.json`／`.parquet`
+   - 欄位結構不確定時先只填 `name` 和 `dataset`
+4. 依序執行：
+   ```
+   rag.bat download --config configs\<名稱>.yaml      （本機檔案不用）
+   rag.bat inspect  --config configs\<名稱>.yaml      → data\rag\out\<名稱>\reports\schema.json 看欄位結構
+   ```
+5. 照 `schema.json` 填設定檔的 `fields`（對話陣列在哪、說話者和內容的鍵），需要的話填 `filter`、`chunk`
+6. 建索引：先 `rag.bat build --config configs\<名稱>.yaml --limit 200` 試跑，沒問題再拿掉 `--limit` 全量跑
+7. 試搜尋：`rag.bat search --config configs\<名稱>.yaml "睡前陪伴" --text`
+8. 重新開 `startserver.bat`，到系統核心 › 生成方式 › 參考範例 選這個索引
+
+索引存在 `data\rag\out\<名稱>\index\`。設定檔的每個欄位、篩選規則、評估題庫的格式見 `rag\README.md`。
+
+**用別人建好的索引**：在系統核心 › 生成方式 › 參考範例按「匯入索引（zip）」，選對方給的 zip。把 `data\rag\out\<名稱>` 資料夾整個壓縮起來就是這種 zip；zip 的檔名就是索引名稱，只能用英數字、`-`、`_`。app 會先檢查索引讀得起來才放進去，已經有同名的不會覆蓋。也可以按「開啟索引資料夾」，直接把索引資料夾放進 `data\rag\out\`，再按「重新整理」。
+
+**分享自己的索引**：把 `data\rag\out\<名稱>` 壓成 zip 給對方。索引裡有原始資料的片段文字，分享前先確認資料的授權允許。
+
 ## 資料夾
 
 | 資料夾 | 內容 |
 |---|---|
 | `runtime\` | uv、Node.js、Python、各引擎的環境與執行檔、ffmpeg（自動下載） |
 | `models\` | 語音模型（自動下載；自己已經下載好的放法見 `models\README.md`） |
-| `data\` | 存檔區：存檔、角色圖、聲音、紀錄；`data\logs\` 是各服務的紀錄 |
+| `data\` | 存檔區：存檔、角色圖、聲音、紀錄；`data\logs\` 是各服務的紀錄；`data\rag\` 是參考範例的設定檔與索引 |
 
 要把模型或存檔放到別的磁碟：在這個資料夾建 `cheruno.local.json` 覆蓋路徑（可用的項目見 `audio\cheruno_audio\paths.py`），存檔區也可以在 app 的存檔畫面換。
 

@@ -40,7 +40,7 @@ export interface PromptTemplates {
     | 'output' | 'outputState' | 'stateAsk' | 'stateAskSecret' | 'translationZh' | 'translationZhEn'
     | 'modeInteractive' | 'modeInfinite' | 'modeSleep' | 'sleepDefault'
   >;
-  character: Group<'system' | 'intro' | 'withImage' | 'direction' | 'tags' | 'filled' | 'secretTemplate' | 'fields' | 'listener' | 'hint_name' | 'hint_reading' | 'hint_subName' | 'hint_ageSex' | 'hint_relation' | 'hint_callName' | 'hint_appearance' | 'hint_bio' | 'hint_personality' | 'hint_behavior' | 'hint_catchphrase' | 'hint_secret' | 'hint_voiceDesc'>;
+  character: Group<'system' | 'intro' | 'withImage' | 'direction' | 'tags' | 'filled' | 'secretTemplate' | 'fields' | 'listener' | 'scene' | 'world' | 'others' | 'glossary' | 'memories' | 'opening' | 'intimacyScript' | 'hint_name' | 'hint_reading' | 'hint_subName' | 'hint_ageSex' | 'hint_relation' | 'hint_callName' | 'hint_appearance' | 'hint_bio' | 'hint_personality' | 'hint_behavior' | 'hint_catchphrase' | 'hint_secret' | 'hint_voiceDesc'>;
   chapters: Group<'system' | 'latest' | 'noLatest' | 'body'>;
   fields: Group<'system'>;
   glossary: Group<'system' | 'user'>;
@@ -104,7 +104,14 @@ export const DEFAULT_TEMPLATES: PromptTemplates = {
     filled: '以下欄位使用者已經填好，其他欄位要與它們一致：\n{{filled}}',
     secretTemplate: 'secret 欄依照下面的「秘密生成格式」逐項寫（保留項目標題，可多行）：\n{{template}}',
     fields: '各欄位：\n{{fields}}',
-    listener: '聽者（角色說話的對象）：{{listener}}',
+    listener: '聽者（角色說話的對象）：\n{{listener}}',
+    scene: '情境（角色登場的場面）：\n{{scene}}',
+    world: '世界觀：\n{{world}}',
+    others: '方向提示提到的其他角色（決定兩人的關係與互動，不要照抄他們的設定）：\n{{others}}',
+    glossary: '名詞圖鑑（專有名詞的讀法與設定，角色卡裡用到要一致）：\n{{glossary}}',
+    memories: '回憶（目前為止發生過的事）：\n{{memories}}',
+    opening: '開場劇本（故事從這裡開始）：\n{{opening}}',
+    intimacyScript: '親密劇本：\n{{intimacyScript}}',
     hint_name: '角色名稱，日文表記＋括號讀み，例「澪（みお）」',
     hint_reading: '名字的平假名讀み',
     hint_subName: '字幕顯示用的名字（正體中文或原文）',
@@ -209,7 +216,14 @@ export const TEMPLATE_META: { [G in keyof PromptTemplates]: { title: string; des
       filled: { label: '已填欄位', rows: 2, vars: V({ filled: '使用者已填的欄位清單' }) },
       secretTemplate: { label: '秘密生成格式', rows: 2, vars: V({ template: '系統核心 › 秘密規則的秘密生成格式' }) },
       fields: { label: '欄位清單', rows: 2, vars: V({ fields: '各欄位說明（下面 13 欄）' }) },
-      listener: { label: '聽者', vars: V({ listener: '聽者的名字（含讀み）' }) },
+      listener: { label: '聽者', rows: 2, vars: V({ listener: '主角的資料（照「聽者（主角）」模板）' }) },
+      scene: { label: '情境', rows: 2, vars: V({ scene: '目前的情境（萬物之書 › 情境啟用時）' }) },
+      world: { label: '世界觀', rows: 2, vars: V({ world: '世界觀（萬物之書 › 世界觀啟用時）' }) },
+      others: { label: '其他角色', rows: 2, vars: V({ others: '方向提示、標籤、已填欄位提到的其他角色卡（不含秘密）' }) },
+      glossary: { label: '名詞圖鑑', rows: 2, vars: V({ glossary: '常駐條目＋提到的條目（圖鑑啟用時）' }) },
+      memories: { label: '回憶', rows: 2, vars: V({ memories: '最新、釘選、提到關鍵字的章節（回憶啟用時）' }) },
+      opening: { label: '開場劇本', rows: 2, vars: V({ opening: '系統提示詞分頁的開場劇本' }) },
+      intimacyScript: { label: '親密劇本', rows: 2, vars: V({ intimacyScript: '親密模式分頁的親密劇本' }) },
       hint_name: { label: '欄位說明：名字', vars: {} },
       hint_reading: { label: '欄位說明：讀み', vars: {} },
       hint_subName: { label: '欄位說明：字幕名', vars: {} },

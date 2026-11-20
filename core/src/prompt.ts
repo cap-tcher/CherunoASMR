@@ -151,12 +151,22 @@ export function pickGlossary(entries: GlossaryEntry[], haystack: string): Glossa
 
 const trimAll = (o: Record<string, string>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v.trim()]));
 
+/**
+ * 角色卡模板是「名前：{{name}}（{{reading}}）」，但角色名稱常常已經寫成「澪（みお）」：
+ * 名稱裡的括號讀み拿掉再代入，否則會變成「澪（みお）（みお）」。讀み欄空的時候用括號裡的
+ */
+export function splitName(name: string, reading: string): { name: string; reading: string } {
+  const paren = /[（(]([^）)]*)[）)]/.exec(name)?.[1]?.trim() ?? '';
+  const base = name.replace(/[（(][^）)]*[）)]/g, '').trim();
+  return { name: base || name.trim(), reading: reading.trim() || paren };
+}
+
 /** t：提示詞模板（系統核心 › 提示詞；預設值見 templates.ts 的 DEFAULT_TEMPLATES.segment）。 */
 export function buildMessages(p: PromptInput, t: SegmentTemplates): ChatMessage[] {
   const c = p.character;
   const u = p.protagonist;
   const section = (title: string, body: string) => (body.trim() ? `${title}\n${body.trim()}` : '');
-  const card = fill(t.card, trimAll({ name: c.name, reading: c.reading, ageSex: c.ageSex, relation: c.relation, callName: c.callName, appearance: c.appearance, bio: c.bio, personality: c.personality, behavior: c.behavior, catchphrase: c.catchphrase }));
+  const card = fill(t.card, trimAll({ ...splitName(c.name, c.reading), ageSex: c.ageSex, relation: c.relation, callName: c.callName, appearance: c.appearance, bio: c.bio, personality: c.personality, behavior: c.behavior, catchphrase: c.catchphrase }));
   const listener = fill(t.listener, trimAll({ nameWithReading: u.reading ? `${u.name}（${u.reading}）` : u.name, callName: c.callName, subName: u.subName, gender: u.gender, appearance: u.appearance, bio: u.bio }));
   const haystack = scanText(p.context, p.userInput);
   const glossary = p.glossary
