@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CharacterFormatError, buildCharacterMessages, buildVoiceInstruct, characterSchema, generateCharacter } from './character.ts';
+import { CharacterFormatError, blankFields, buildCharacterMessages, buildVoiceInstruct, characterSchema, generateCharacter } from './character.ts';
 import { CARD_TEXT_FIELDS } from './prompt.ts';
 import { DEFAULT_TEMPLATES } from './templates.ts';
 
@@ -97,3 +97,43 @@ describe('欄位填 JSON 也不會弄壞請求', () => {
   });
 });
 
+
+describe('只生成空白欄位（使用者 2026-11-20）', () => {
+  const filled = { name: '澪（みお）', relation: '隔壁的學姊', secret: '其實喜歡你' };
+  it('schema 只放空白欄位、全部 required；已填的照樣送進請求當依據', () => {
+    const m = buildCharacterMessages({ direction: '學姊', tags: [], imageDataUrl: null, current: filled, listener: '', secretTemplate: '- 心事' }, T);
+    const text = m[1]!.content as string;
+    expect(text).toContain('- name：澪（みお）'); // 已填的送進去
+    expect(text).toContain('- relation：隔壁的學姊');
+    const ask = text.slice(text.indexOf('只要寫下面這些空白欄位'));
+    expect(ask).not.toContain('- name：');
+    expect(ask).not.toContain('- relation：');
+    expect(ask).toContain('- personality：');
+    expect(text).not.toContain('秘密生成格式'); // 秘密已填就不附格式
+    const s = characterSchema(T, blankFields(filled)) as { required: string[]; properties: Record<string, unknown>; additionalProperties: boolean };
+    expect(s.required).not.toContain('name');
+    expect(Object.keys(s.properties)).toEqual(s.required);
+    expect(s.additionalProperties).toBe(false);
+  });
+  it('模型只回空白欄位；合併後已填的原樣保留', async () => {
+    let body = '';
+    const blank = blankFields(filled);
+    const fetchFn = (async (_u: string, init: RequestInit) => {
+      body = String(init.body);
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(Object.fromEntries(blank.map((k) => [k, `gen-${k}`]))) } }] })}\n\ndata: [DONE]\n\n`);
+    }) as unknown as typeof fetch;
+    const { merged, kept } = await generateCharacter({ endpoint: { baseUrl: 'http://x/v1', apiKey: '' }, model: 'm', templates: T, fetchFn, request: { direction: '', tags: [], imageDataUrl: null, current: filled, listener: '', secretTemplate: '' } });
+    expect(JSON.parse(body).response_format.json_schema.schema.required).toEqual(blank);
+    expect(merged.name).toBe('澪（みお）');
+    expect(merged.secret).toBe('其實喜歡你');
+    expect(merged.personality).toBe('gen-personality');
+    expect(kept).toBe(3);
+  });
+  it('每個欄位都填了：不送請求，直接說明', async () => {
+    const all = Object.fromEntries(CARD_TEXT_FIELDS.map((k) => [k, 'x']));
+    let called = false;
+    const fetchFn = (async () => ((called = true), new Response(''))) as unknown as typeof fetch;
+    await expect(generateCharacter({ endpoint: { baseUrl: 'http://x/v1', apiKey: '' }, model: 'm', templates: T, fetchFn, request: { direction: '', tags: [], imageDataUrl: null, current: all, listener: '', secretTemplate: '' } })).rejects.toThrow('先清空要重新生成的欄位');
+    expect(called).toBe(false);
+  });
+});

@@ -57,7 +57,17 @@ export interface LockedVoice {
 export interface Character extends CharacterCard {
   image: string | null; // 縮小後的 data URL
   voice: LockedVoice | null;
+  /** 生成過的聲音候選（使用者 2026-11-20「要存」）：候選音存在庫的 refvoice，這裡記 key 與當時的指示、seed；回到設計聲音時可以重聽、直接鎖定 */
+  voiceCandidates?: SavedCandidate[];
   state?: Snapshot; // 最新的秘密狀態（存在角色上，重新整理後接著用）；重新開始會清掉（使用者 2026-11-19 決定）；沒有＝欄位表的初始值
+}
+
+export interface SavedCandidate {
+  key: string; // 庫 refvoice 的 key（內容 sha256）
+  seed: number;
+  instruct: string; // 送給 Qwen 的完整指示
+  seconds: number;
+  at: string; // 生成時間
 }
 
 export interface Scene {

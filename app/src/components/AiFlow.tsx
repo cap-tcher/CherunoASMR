@@ -126,7 +126,7 @@ export function AiFlow(props: { data: AppData }) {
           { k: '串流', v: '120 秒沒資料就報錯可重試' },
         ]}
         output={[
-          { k: 'lines[]', v: `每句 ja（≤60 字，可含 {漢字|よみ}）、${data.ui.sub === 'en' ? 'en' : 'zh'}、voice（normal／whisper／breath）、se[]` },
+          { k: 'lines[]', v: `每句 ja（≤60 字，可含 {漢字|よみ}）、${data.ui.sub === 'en' ? 'en' : 'zh'}、voice（normal／soft／whisper／breath）、emotion／strength／speed、se[]` },
           { k: 'actions', v: '3 個建議行動' },
           { k: 'memory', v: '記憶候選' },
           { k: 'state', v: im ? `${fields.length} 個欄位` : '一般模式不輸出', off: !im },
@@ -161,7 +161,7 @@ export function AiFlow(props: { data: AppData }) {
         where={`${s.audioBase}/tts → ${ENGINE_NAME[s.engine]}`}
         input={[
           { k: 'text', v: '{漢字|よみ} 換成讀音' },
-          { k: 'voice', v: 'normal／whisper／breath' },
+          { k: 'voice', v: 'normal／soft／whisper／breath（＋emotion／strength／speed，ZONOS 換成語氣控制）' },
           { k: '聲音', v: ch?.voice ? `${ch.voice.engine}，${ch.voice.engine === 'qwen-comfy' ? `描述＋seed ${ch.voice.seed}` : `參考音 ${ch.voice.speaker}`}` : '還沒鎖定' },
           ...(s.engine === 'irodori' ? [{ k: '取樣步數', v: s.irodoriSteps }] : []),
         ]}

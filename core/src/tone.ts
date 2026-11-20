@@ -36,7 +36,13 @@ export interface ZonosToneTable {
   emotion: Record<Exclude<Emotion, 'none'>, [Controls, Controls | null]>;
   /** 句中《》的耳語（Z-02：整句 4 太弱太容易壞，句中短範圍用 3） */
   span: Controls;
+  /**
+   * 情緒與起伏強度（0.3～1）：情緒（emotions.*）與激動（mood.*）的強度乘上這個比例；耳語、速度、響度不受影響。
+   * 使用者 2026-11-20：「語調變化好像開太大 聲音有點破掉」（量過沒有削波，峰值都在 0.8 以下 → 是控制太強把音高起伏推太猛）→ 預設 0.7
+   */
+  scale: number;
 }
+export const SCALE_RANGE = [0.3, 1] as const;
 
 /**
  * Z-02 篩選結果（GTX 1070、聲音 c_6892a0el、三個 seed 量有聲比例／F0／長度）：
@@ -62,6 +68,7 @@ export const DEFAULT_ZONOS_TONE: ZonosToneTable = {
     excited: [{ 'cond.loudness': -18, 'mood.arousal': 3, 'delivery.tempo': 1 }, { 'cond.loudness': -16, 'mood.arousal': 4, 'delivery.tempo': 1 }],
   },
   span: { 'delivery.whisper': 3 },
+  scale: 0.7,
 };
 
 export interface Tone {
@@ -93,6 +100,8 @@ export function zonosControls(t: Tone, table: ZonosToneTable = DEFAULT_ZONOS_TON
     }
     Object.assign(out, pick);
   }
+  const k = Math.min(SCALE_RANGE[1], Math.max(SCALE_RANGE[0], table.scale ?? 1));
+  for (const key of Object.keys(out)) if (key.startsWith('emotions.') || key.startsWith('mood.')) out[key] = Math.round(out[key]! * k * 100) / 100;
   return out;
 }
 
@@ -211,5 +220,6 @@ export function withToneDefaults(t: Partial<ZonosToneTable> | undefined): ZonosT
     speed: { ...d.speed, ...(t?.speed ?? {}) },
     emotion: { ...d.emotion, ...(t?.emotion ?? {}) },
     span: t?.span ?? d.span,
+    scale: typeof t?.scale === 'number' ? t.scale : d.scale,
   };
 }

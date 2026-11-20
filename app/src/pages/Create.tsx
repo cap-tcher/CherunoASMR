@@ -2,9 +2,9 @@
 import { useSession } from '../session.tsx';
 import { CARD_TEXT_FIELDS, buildVoiceInstruct, generateCharacter, type CardTextField } from '@cheruno/core';
 import { useEffect, useRef, useState } from 'react';
-import { EMPTY_CHARACTER, makeCharId, shrinkImage, type AppData, type Character, type LockedVoice, endpointOf } from '../store.ts';
+import { EMPTY_CHARACTER, makeCharId, shrinkImage, type AppData, type Character, type LockedVoice, type SavedCandidate, endpointOf } from '../store.ts';
 import { Field, Outline, Sec, type OutlineCat } from '../components/Outline.tsx';
-import { imageToDataUrl, isKey, putAsset } from '../library.ts';
+import { fetchAsset, imageToDataUrl, isKey, putAsset } from '../library.ts';
 import { DIR, creationExtras } from '../components/CardRegen.tsx';
 import { traced } from '../requestLog.ts';
 import { READY_TIMEOUT, SERVICE_LABEL, serviceStatus, startTts, stopTts, unloadLms, waitTtsReady, type ServiceStatus, type TtsService } from '../services.ts';
@@ -36,6 +36,7 @@ interface Candidate {
   blob?: Blob;
   seconds?: number;
   error?: string;
+  key?: string; // 存進庫之後的 key（SavedCandidate）
 }
 type Form = Record<CardTextField, string>;
 
@@ -57,8 +58,12 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
   const [generated, setGenerated] = useState(!!editing);
   const [trial, setTrial] = useState(`ねえ、今日もおつかれさま……目、閉じてみよっか。ふふ、いい子だね。`);
   const [cands, setCands] = useState<Candidate[]>([]);
+  // 存進庫的候選（這次與之前生成的；新的在前）。存角色時一起記在角色上，回到這裡就看得到
+  const [saved, setSaved] = useState<SavedCandidate[]>(() => editing?.voiceCandidates ?? []);
+  const [oldUrl, setOldUrl] = useState<Record<string, string>>({});
   const [locked, setLocked] = useState<LockedVoice | null>(null);
   const [lockedId, setLockedId] = useState<string | null>(null);
+  const [lockedKey, setLockedKey] = useState<string | null>(editing?.voice?.ref ?? null); // 鎖定的是哪個庫檔（之前的候選用）
   const [voiceErr, setVoiceErr] = useState('');
   // 聲音候選要 ComfyUI（Qwen 聲音設計）；鎖定要播放用的引擎（Irodori／ZONOS）——按了才啟動（[[PLAN_服務按需啟動]]）
   const [svc, setSvc] = useState<ServiceStatus | null>(null);
@@ -134,8 +139,11 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
   const charId = useRef(editing?.id ?? makeCharId(data.characters.map((c) => c.id)));
 
   const set = (k: CardTextField) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm({ ...form, [k]: e.target.value });
-  const hasInput = !!image || !!direction.trim() || tags.length > 0;
-  const sendParts = [image ? '角色圖' : null, direction.trim() ? '方向提示' : null, tags.length ? `${tags.length} 個標籤` : null].filter(Boolean);
+  // 已填的欄位也是依據（只生成空白欄位，已填的送進請求讓前後一致；使用者 2026-11-20）
+  const filledCount = CARD_TEXT_FIELDS.filter((k) => form[k].trim()).length;
+  const blankCount = CARD_TEXT_FIELDS.length - filledCount;
+  const hasInput = !!image || !!direction.trim() || tags.length > 0 || filledCount > 0;
+  const sendParts = [image ? '角色圖' : null, direction.trim() ? '方向提示' : null, tags.length ? `${tags.length} 個標籤` : null, filledCount ? `已填的 ${filledCount} 欄` : null].filter(Boolean);
   const voiceBusy = cands.some((c) => c.state === 'busy' || c.state === 'queued');
   // 候選一律由 Qwen3-TTS VoiceDesign 依描述產生（[[Research_ASMR_TTS]]：Qwen 設計音色、播放引擎克隆）；描述留空用預設描述
   const voiceDesc = form.voiceDesc.trim() || vt.qwenDefault;
@@ -210,6 +218,14 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
           unload_after: s.engine !== 'qwen-comfy' && i === list.length - 1,
         }, ctrl.signal);
         setCands((xs) => xs.map((x) => (x.id === c.id ? { ...x, state: 'ready', url: r.url, blob: r.blob, seconds: r.seconds, ms: Date.now() - t0 } : x)));
+        // 生成完就存進庫（不等鎖定）：之後回來重聽、改鎖別的候選都還在
+        try {
+          const key = await putAsset('refvoice', 'wav', r.blob, { desc: c.instruct, seed: c.seed, engine: 'qwen-comfy', candidate: true });
+          setCands((xs) => xs.map((x) => (x.id === c.id ? { ...x, key } : x)));
+          setSaved((xs) => [{ key, seed: c.seed, instruct: c.instruct, seconds: r.seconds, at: new Date().toISOString() }, ...xs.filter((x) => x.key !== key)]);
+        } catch (e) {
+          props.toast(`候選 ${c.id} 沒存進庫（離開這頁就不見了）：${e instanceof Error ? e.message : String(e)}`, true);
+        }
       } catch (e) {
         if (ctrl.signal.aborted) break;
         const msg = e instanceof Error ? e.message : String(e);
@@ -231,6 +247,7 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
       const ref = await putAsset('refvoice', 'wav', c.blob!, { desc: c.instruct, seed: c.seed, engine: 'qwen-comfy' });
       setLocked({ engine: s.engine, speaker, desc: form.voiceDesc, seed: c.seed, lockedAt: new Date().toISOString(), ref });
       setLockedId(c.id);
+      setLockedKey(ref);
       props.toast(`已鎖定聲音：候選 ${c.id}`);
     } catch (e) {
       props.toast(`鎖定失敗：${e instanceof Error ? e.message : String(e)}`, true);
@@ -250,7 +267,35 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
   const named = !!form.name.trim() && !!form.reading.trim();
   const ready = !!voice && named;
   const startHint = !named ? '名字與讀み要填' : !voice ? '可以先儲存角色，之後到萬物之書的角色分頁設計聲音；開始聆聽要先鎖定一個聲音' : '聲音已鎖定，可以開始';
-  const draft = (): Character => ({ ...(editing ?? EMPTY_CHARACTER), ...form, id: charId.current, image, voice });
+  const draft = (): Character => ({ ...(editing ?? EMPTY_CHARACTER), ...form, id: charId.current, image, voice, voiceCandidates: saved });
+
+  /** 之前存的候選：讀回庫裡的音檔才能播放、鎖定 */
+  async function oldBlob(v: SavedCandidate): Promise<Blob> {
+    const b = await fetchAsset('refvoice', v.key);
+    if (!b) throw new Error('庫裡找不到這個候選的音檔（可能被清理掉了）');
+    return b;
+  }
+  async function playOld(v: SavedCandidate) {
+    try {
+      const url = oldUrl[v.key] ?? URL.createObjectURL(await oldBlob(v));
+      setOldUrl((m) => ({ ...m, [v.key]: url }));
+      void new Audio(url).play();
+    } catch (e) {
+      props.toast(e instanceof Error ? e.message : String(e), true);
+    }
+  }
+  async function lockOld(v: SavedCandidate) {
+    try {
+      const blob = await oldBlob(v);
+      const speaker = s.engine === 'qwen-comfy' ? v.instruct : await registerVoice(s.audioBase, s.engine, charId.current, blob);
+      setLocked({ engine: s.engine, speaker, desc: form.voiceDesc, seed: v.seed, lockedAt: new Date().toISOString(), ref: v.key });
+      setLockedId(null);
+      setLockedKey(v.key);
+      props.toast(`已鎖定之前的候選（seed ${v.seed}）`);
+    } catch (e) {
+      props.toast(`鎖定失敗：${e instanceof Error ? e.message : String(e)}`, true);
+    }
+  }
 
   // 三步由上往下（[[SCR-03_設定頁版面]]）：依據 → 角色卡 → 聲音；outline 是步驟
   const steps: OutlineCat<'create'>[] = [
@@ -327,10 +372,10 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
             </Field>
           ))}
           <div className="lin-actions">
-            <button type="button" className="btn primary" disabled={!hasInput || cardBusy} onClick={() => void genCard()}>
+            <button type="button" className="btn primary" disabled={!hasInput || cardBusy || blankCount === 0} title={blankCount === 0 ? '每個欄位都填了：先清空要重新生成的欄位' : undefined} onClick={() => void genCard()}>
               {cardBusy ? (image ? '正在看圖' : '正在構思') : generated ? '重新生成（保留已填欄位）' : '生成角色卡'}
             </button>
-            <span className="hint">{!hasInput ? '放一張圖，或寫一句方向提示' : `送出：${sendParts.join('＋')}${generated ? '。你填過的欄位不會被覆蓋' : '。約 10 秒'}`}</span>
+            <span className="hint">{!hasInput ? '放一張圖、寫一句方向提示，或先填幾個欄位' : blankCount === 0 ? '每個欄位都填了：先清空要重新生成的欄位' : `送出：${sendParts.join('＋')}；只生成空白的 ${blankCount} 欄`}</span>
           </div>
           {cardErr && <div className="note danger">{cardErr}</div>}
         </Sec>
@@ -443,6 +488,33 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
               </span>
             </div>
           ))}
+          {saved.filter((v) => !cands.some((c) => c.key === v.key)).length > 0 && (
+            <div className="lin-sub">
+              <h4>之前的候選</h4>
+              <p className="hint">生成過的候選都存在庫裡（存角色時一起記下），可以重聽、直接鎖定；「移除」只把它從清單拿掉，音檔留在庫裡，到存檔畫面清理未引用的檔案時才會刪。</p>
+              {saved
+                .filter((v) => !cands.some((c) => c.key === v.key))
+                .map((v) => (
+                  <div key={v.key} className="lin-sec-head">
+                    <span className="lin-hint num">
+                      seed {v.seed}，{v.seconds.toFixed(1)} 秒，{new Date(v.at).toLocaleString('zh-TW', { hour12: false })}
+                      {v.instruct !== voiceInstruct ? '（當時的聲音描述和現在不同）' : ''}
+                    </span>
+                    <div className="lin-actions">
+                      <button type="button" className="btn sm" aria-label={`試聽 seed ${v.seed} 的候選`} onClick={() => void playOld(v)}>
+                        播放
+                      </button>
+                      <button type="button" className="btn sm" aria-pressed={lockedKey === v.key} onClick={() => void lockOld(v)}>
+                        {lockedKey === v.key ? '已鎖定' : '鎖定'}
+                      </button>
+                      <button type="button" className="btn sm ghost" aria-label={`移除 seed ${v.seed} 的候選`} onClick={() => setSaved((xs) => xs.filter((x) => x.key !== v.key))}>
+                        移除
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
           {editing?.voice && !locked && <p className="hint">目前的聲音：{editing.voice.engine}，seed {editing.voice.seed}。重新鎖定會取代。</p>}
           <div className="lin-actions" style={{ justifyContent: 'flex-end' }}>
             <span className="hint">{startHint}</span>

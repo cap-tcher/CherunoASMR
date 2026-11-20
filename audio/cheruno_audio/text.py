@@ -4,7 +4,7 @@ import re
 
 RUBY = re.compile(r"\{([^{}|]+)\|([^{}|]+)\}")
 
-VOICES = ("normal", "whisper", "breath")
+VOICES = ("normal", "soft", "whisper", "breath")  # 和 core segment.ts 的 VOICES 一致（0.1.5 加了 soft 時漏改這裡）
 
 # Irodori-TTS 的 emoji 風格標記（EMOJI_ANNOTATIONS.md）：👂＝囁き・耳元、😮‍💨＝吐息
 IRODORI_VOICE_PREFIX = {"normal": "", "soft": "👂", "whisper": "👂", "breath": "😮‍💨"}  # Irodori 沒有「小聲」：和耳語同一個前綴

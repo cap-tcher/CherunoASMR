@@ -1,6 +1,6 @@
 // 系統核心 › 生成方式 › 語氣對照（[[PLAN_ZONOS語氣控制]] Z-05）：台本每句的語氣 → ZONOS controls。
 // 每格寫成「類別.方向=強度, …」；離開欄位時檢查，寫錯就留在原值並說明哪裡錯。
-import { DEFAULT_ZONOS_TONE, EMOTION_LABEL, EMOTIONS, SPEED_LABEL, SPEEDS, VOICES, formatControls, parseControls, type Emotion, type ZonosToneTable } from '@cheruno/core';
+import { DEFAULT_ZONOS_TONE, EMOTION_LABEL, EMOTIONS, SPEED_LABEL, SPEEDS, VOICES, formatControls, parseControls, SCALE_RANGE, type Emotion, type ZonosToneTable } from '@cheruno/core';
 import { useEffect, useState } from 'react';
 import { Field } from './Outline.tsx';
 
@@ -40,6 +40,18 @@ export function ToneTable(props: { value: ZonosToneTable; onChange: (t: ZonosTon
   const emo = EMOTIONS.filter((e): e is Exclude<Emotion, 'none'> => e !== 'none');
   return (
     <>
+      <Field label={<>情緒與起伏強度　<span className="num">{t.scale.toFixed(2)}</span></>} hint="情緒與激動的強度乘上這個比例：聲音起伏太大、聽起來破掉就往下調，太平就往上。耳語、速度、響度不受影響。預設 0.70">
+        <input
+          type="range"
+          className="range"
+          min={SCALE_RANGE[0]}
+          max={SCALE_RANGE[1]}
+          step={0.05}
+          value={t.scale}
+          aria-valuetext={t.scale.toFixed(2)}
+          onChange={(e) => props.onChange({ ...t, scale: Number(e.target.value) })}
+        />
+      </Field>
       <div className="lin-sub">
         <h4>音量</h4>
         {VOICES.map((v) => (

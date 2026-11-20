@@ -9,11 +9,17 @@ export type CharacterTemplates = PromptTemplates['character'];
 
 const hint = (t: CharacterTemplates, k: CardTextField) => t[`hint_${k}` as keyof CharacterTemplates];
 
-export function characterSchema(t: CharacterTemplates): object {
+/** 還沒填的欄位：模型只寫這些（使用者 2026-11-20：「生成空白欄位就好 不是空白的就不用要求回答 但不是空白的要送進請求裡」） */
+export function blankFields(current: Partial<Record<CardTextField, string>>): CardTextField[] {
+  return CARD_TEXT_FIELDS.filter((k) => !current[k]?.trim());
+}
+
+/** schema 只放要模型寫的欄位（每個都 required、additionalProperties false：OpenAI strict／Codex 代理接得住） */
+export function characterSchema(t: CharacterTemplates, fields: readonly CardTextField[] = CARD_TEXT_FIELDS): object {
   return {
     type: 'object',
-    properties: Object.fromEntries(CARD_TEXT_FIELDS.map((k) => [k, { type: 'string', minLength: 1, maxLength: k === 'voiceDesc' ? 160 : k === 'secret' ? 800 : 200, description: hint(t, k) }])),
-    required: [...CARD_TEXT_FIELDS],
+    properties: Object.fromEntries(fields.map((k) => [k, { type: 'string', minLength: 1, maxLength: k === 'voiceDesc' ? 160 : k === 'secret' ? 800 : 200, description: hint(t, k) }])),
+    required: [...fields],
     additionalProperties: false,
   };
 }
@@ -36,6 +42,7 @@ export function characterHaystack(r: Pick<CharacterRequest, 'direction' | 'tags'
 
 export function buildCharacterMessages(r: CharacterRequest, t: CharacterTemplates): ChatMessage[] {
   const filled = CARD_TEXT_FIELDS.filter((k) => r.current[k]?.trim()).map((k) => `- ${k}：${r.current[k]}`);
+  const blank = blankFields(r.current);
   const c = r.context ?? {};
   const part = (tpl: string, key: string, v: string | undefined) => (v?.trim() ? fill(tpl, { [key]: v.trim() }) : '');
   const text = [
@@ -52,8 +59,9 @@ export function buildCharacterMessages(r: CharacterRequest, t: CharacterTemplate
     r.direction.trim() ? fill(t.direction, { direction: r.direction.trim() }) : '',
     r.tags.length ? fill(t.tags, { tags: r.tags.join('、') }) : '',
     filled.length ? fill(t.filled, { filled: filled.join('\n') }) : '',
-    r.secretTemplate.trim() ? fill(t.secretTemplate, { template: r.secretTemplate.trim() }) : '',
-    fill(t.fields, { fields: CARD_TEXT_FIELDS.map((k) => `- ${k}：${hint(t, k)}`).join('\n') }),
+    // 秘密已經填了就不用附秘密生成格式
+    r.secretTemplate.trim() && blank.includes('secret') ? fill(t.secretTemplate, { template: r.secretTemplate.trim() }) : '',
+    fill(t.fields, { fields: blank.map((k) => `- ${k}：${hint(t, k)}`).join('\n') }),
   ]
     .filter((x) => x.trim())
     .join('\n\n');
@@ -66,15 +74,17 @@ export function buildCharacterMessages(r: CharacterRequest, t: CharacterTemplate
 export class CharacterFormatError extends Error {}
 
 export async function generateCharacter(o: { endpoint: LlmEndpoint; model: string; request: CharacterRequest; templates: CharacterTemplates; signal?: AbortSignal; fetchFn?: typeof fetch }) {
+  const blank = blankFields(o.request.current);
+  if (!blank.length) throw new CharacterFormatError('每個欄位都已經填了：先清空要重新生成的欄位');
   const raw = await streamChatRetry(
     o.endpoint,
-    { model: o.model, messages: buildCharacterMessages(o.request, o.templates), schema: characterSchema(o.templates), temperature: 0.9, maxTokens: 8192, ...(o.signal ? { signal: o.signal } : {}), onDelta: () => {} },
+    { model: o.model, messages: buildCharacterMessages(o.request, o.templates), schema: characterSchema(o.templates, blank), temperature: 0.9, maxTokens: 8192, ...(o.signal ? { signal: o.signal } : {}), onDelta: () => {} },
     o.fetchFn,
   );
   const rec = parseModelJson<Record<string, unknown>>(raw, '角色卡');
-  const missing = CARD_TEXT_FIELDS.filter((k) => typeof rec[k] !== 'string' || !(rec[k] as string).trim());
+  const missing = blank.filter((k) => typeof rec[k] !== 'string' || !(rec[k] as string).trim());
   if (missing.length) throw new CharacterFormatError(`角色卡缺欄位：${missing.join('、')}`);
-  return mergeKeepFilled(o.request.current, rec as Record<CardTextField, string>);
+  return mergeKeepFilled(o.request.current, rec as Partial<Record<CardTextField, string>>);
 }
 
 /**

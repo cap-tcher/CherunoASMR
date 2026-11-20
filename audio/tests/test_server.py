@@ -302,3 +302,15 @@ def test_zonos_condition_values_pass_through_and_validated():
     assert gen["condition_values"] == {"loudness": -29} and gen["controls"] == {"delivery.whisper": 3}
     assert c.post("/tts", json={"engine": "zonos", "text": "a", "speaker": "tone_z", "condition_values": {"loudness": -50}}).status_code == 422
     assert c.post("/tts", json={"engine": "zonos", "text": "a", "speaker": "tone_z", "condition_values": {"pitch": 3}}).status_code == 422
+
+
+def test_tts_accepts_every_app_voice():
+    """app 的每種 voice（core segment.ts VOICES）音訊服務都要收：0.1.5 加了 soft 卻漏了這裡，小声句全部 400「未知的 voice：soft」"""
+    from cheruno_audio.text import VOICES
+
+    assert set(VOICES) == {"normal", "soft", "whisper", "breath"}
+    c = make_client(_zonos_with([], 3.0))
+    _register(c)
+    for v in VOICES:
+        r = c.post("/tts", json={"engine": "zonos", "text": "ねえ、今日もお疲れさま。", "speaker": "tone_z", "voice": v})
+        assert r.status_code == 200, (v, r.text)

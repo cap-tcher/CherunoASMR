@@ -1,24 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { controlsKey, DEFAULT_ZONOS_TONE, formatControls, splitControls, nearVoice, parseControls, SpanFormatError, whisperSpans, withToneDefaults, zonosControls, zonosSpans } from './tone.ts';
+import { controlsKey, DEFAULT_ZONOS_TONE as DEFAULT_TABLE, formatControls, splitControls, nearVoice, parseControls, SpanFormatError, whisperSpans, withToneDefaults, zonosControls, zonosSpans } from './tone.ts';
+
+const DEFAULT_ZONOS_TONE = { ...DEFAULT_TABLE, scale: 1 }; // 對照值本身（不乘強度比例）
+const Z = (t: Parameters<typeof zonosControls>[0]) => zonosControls(t, DEFAULT_ZONOS_TONE);
 
 describe('語氣 → ZONOS controls（Z-02 的範圍）', () => {
   it('音量、速度、情緒照對照表', () => {
-    expect(zonosControls({ voice: 'normal' })).toEqual({});
-    expect(zonosControls({ voice: 'whisper' })).toEqual({ 'delivery.whisper': 3, 'cond.loudness': -29 });
-    expect(zonosControls({ voice: 'soft' })).toEqual({ 'delivery.whisper': 1.5, 'cond.loudness': -26 });
-    expect(zonosControls({ voice: 'normal', speed: 'slow', emotion: 'adoring', strength: 2 })).toEqual({ 'delivery.tempo': -1, 'emotions.adoring': 4 });
-    expect(zonosControls({ voice: 'normal', emotion: 'excited', strength: 2 })).toEqual({ 'cond.loudness': -16, 'mood.arousal': 4, 'delivery.tempo': 1 });
+    expect(Z({ voice: 'normal' })).toEqual({});
+    expect(Z({ voice: 'whisper' })).toEqual({ 'delivery.whisper': 3, 'cond.loudness': -29 });
+    expect(Z({ voice: 'soft' })).toEqual({ 'delivery.whisper': 1.5, 'cond.loudness': -26 });
+    expect(Z({ voice: 'normal', speed: 'slow', emotion: 'adoring', strength: 2 })).toEqual({ 'delivery.tempo': -1, 'emotions.adoring': 4 });
+    expect(Z({ voice: 'normal', emotion: 'excited', strength: 2 })).toEqual({ 'cond.loudness': -16, 'mood.arousal': 4, 'delivery.tempo': 1 });
   });
   it('強度 2 沒有收（音高超上限）的情緒用強度 1', () => {
-    expect(zonosControls({ voice: 'normal', emotion: 'happy', strength: 2 })).toEqual({ 'emotions.happy': 2 });
+    expect(Z({ voice: 'normal', emotion: 'happy', strength: 2 })).toEqual({ 'emotions.happy': 2 });
   });
   it('疊加上限：耳語類開著時情緒最多強度 1、不疊速度', () => {
     // 囁き／吐息不疊情緒（第三輪：疊了常出空音或 500）；小声可以疊強度 1
-    expect(zonosControls({ voice: 'whisper', emotion: 'adoring', strength: 2, speed: 'slow' })).toEqual({ 'delivery.whisper': 3, 'cond.loudness': -29 });
-    expect(zonosControls({ voice: 'soft', emotion: 'adoring', strength: 2, speed: 'slow' })).toEqual({ 'delivery.whisper': 1.5, 'cond.loudness': -26, 'emotions.adoring': 2 });
-    expect(zonosControls({ voice: 'soft', emotion: 'sleepy', strength: 1 })).toEqual({ 'delivery.whisper': 1.5, 'cond.loudness': -26, 'mood.arousal': -4 });
+    expect(Z({ voice: 'whisper', emotion: 'adoring', strength: 2, speed: 'slow' })).toEqual({ 'delivery.whisper': 3, 'cond.loudness': -29 });
+    expect(Z({ voice: 'soft', emotion: 'adoring', strength: 2, speed: 'slow' })).toEqual({ 'delivery.whisper': 1.5, 'cond.loudness': -26, 'emotions.adoring': 2 });
+    expect(Z({ voice: 'soft', emotion: 'sleepy', strength: 1 })).toEqual({ 'delivery.whisper': 1.5, 'cond.loudness': -26, 'mood.arousal': -4 });
     // 耳語類的響度由音量決定：激動情緒帶的響度不覆蓋
-    expect(zonosControls({ voice: 'soft', emotion: 'excited', strength: 1 })).toEqual({ 'delivery.whisper': 1.5, 'cond.loudness': -26, 'mood.arousal': 3 });
+    expect(Z({ voice: 'soft', emotion: 'excited', strength: 1 })).toEqual({ 'delivery.whisper': 1.5, 'cond.loudness': -26, 'mood.arousal': 3 });
   });
   it('情緒的音高不超過基準約 +40%：強度 2 只收量測時沒超過的', () => {
     const two = Object.entries(DEFAULT_ZONOS_TONE.emotion).filter(([, v]) => v[1]).map(([k]) => k).sort();
@@ -30,6 +33,13 @@ describe('語氣 → ZONOS controls（Z-02 的範圍）', () => {
     expect(() => parseControls('cond.loudness=-50')).toThrow('-40～0');
     expect(() => parseControls('cond.pitch=3')).toThrow('不是 ZONOS 的條件');
     expect(zonosSpans({ voice: 'normal', ja: '《ひみつ》' }, { ...DEFAULT_ZONOS_TONE, span: { 'delivery.whisper': 3, 'cond.loudness': -29 } })[0]!.controls).toEqual({ 'delivery.whisper': 3 });
+  });
+  it('情緒與起伏強度：只縮情緒與激動，耳語、速度、響度不動；預設 0.7、範圍 0.3～1', () => {
+    expect(DEFAULT_TABLE.scale).toBe(0.7);
+    expect(zonosControls({ voice: 'normal', emotion: 'excited', strength: 2 })).toEqual({ 'cond.loudness': -16, 'mood.arousal': 2.8, 'delivery.tempo': 1 });
+    expect(zonosControls({ voice: 'soft', emotion: 'adoring', strength: 1 })).toEqual({ 'delivery.whisper': 1.5, 'cond.loudness': -26, 'emotions.adoring': 1.4 });
+    expect(zonosControls({ voice: 'normal', emotion: 'sad', strength: 2 }, { ...DEFAULT_TABLE, scale: 0.1 })['emotions.sad']).toBe(1.8); // 低於 0.3 當 0.3
+    expect(withToneDefaults({ voice: DEFAULT_TABLE.voice } as never).scale).toBe(0.7);
   });
   it('controlsKey 跟鍵的順序無關', () => {
     expect(controlsKey({ b: 1, a: 2 })).toBe(controlsKey({ a: 2, b: 1 }));

@@ -39,6 +39,7 @@ function referencedKeys(d: AppData): Record<Kind, Set<string>> {
   for (const c of d.characters) {
     if (c.image && isKey(c.image)) out.image.add(c.image);
     if (c.voice?.ref && isKey(c.voice.ref)) out.refvoice.add(c.voice.ref);
+    for (const v of c.voiceCandidates ?? []) if (isKey(v.key)) out.refvoice.add(v.key); // 生成過的聲音候選
   }
   return out;
 }

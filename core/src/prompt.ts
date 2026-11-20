@@ -218,13 +218,13 @@ export function buildMessages(p: PromptInput, t: SegmentTemplates): ChatMessage[
 }
 
 /** 合併生成的角色卡：只填使用者還沒填的欄位（SCR-02：重新生成保留已填欄位）。 */
-export function mergeKeepFilled(current: Partial<Record<CardTextField, string>>, generated: Record<CardTextField, string>) {
+export function mergeKeepFilled(current: Partial<Record<CardTextField, string>>, generated: Partial<Record<CardTextField, string>>) {
   const merged = {} as Record<CardTextField, string>;
   let kept = 0;
   for (const k of CARD_TEXT_FIELDS) {
     const cur = current[k]?.trim() ?? '';
     if (cur) kept += 1;
-    merged[k] = cur ? (current[k] as string) : generated[k];
+    merged[k] = cur ? (current[k] as string) : (generated[k] ?? '');
   }
   return { merged, kept };
 }
