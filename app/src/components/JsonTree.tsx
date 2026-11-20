@@ -1,8 +1,32 @@
 // 巢狀資料顯示（請求紀錄用）：最上層「欄位：值」排成兩欄；物件與陣列可摺疊；長字串收成一行、點開保留換行。
-import type { ReactNode } from 'react';
+// 收合的內容不渲染（<details> 收著也會把子元素全建進 DOM，100 筆請求就卡；使用者 2026-11-20）。
+import { useState, type ReactNode } from 'react';
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const LONG = 120;
+
+/** 展開才渲染內容的 <details>：children 是函式，收合時不呼叫 */
+export function Fold({
+  className,
+  open: initial = false,
+  summary,
+  children,
+  ...attrs
+}: {
+  className: string;
+  open?: boolean;
+  summary: ReactNode;
+  children: () => ReactNode;
+  [data: `data-${string}`]: string;
+}) {
+  const [open, setOpen] = useState(initial);
+  return (
+    <details className={className} open={open} onToggle={(e) => setOpen(e.currentTarget.open)} {...attrs}>
+      {summary}
+      {open && children()}
+    </details>
+  );
+}
 
 /** 陣列裡的物件用什麼當摘要：聊天訊息＝角色＋字數；有 name／id／ja 就用它 */
 function itemLabel(v: unknown): string {
@@ -29,12 +53,16 @@ function Scalar({ v }: { v: unknown }) {
   const s = String(v);
   if (s.length <= LONG && !s.includes('\n')) return <span className="jt-str">{s === '' ? <span className="jt-null">（空字串）</span> : s}</span>;
   return (
-    <details className="jt-long">
-      <summary>
-        <span className="jt-str">{s.replace(/\s+/g, ' ').slice(0, 60)}…</span> <span className="jt-meta">{s.length.toLocaleString()} 字</span>
-      </summary>
-      <pre className="jt-pre">{s}</pre>
-    </details>
+    <Fold
+      className="jt-long"
+      summary={
+        <summary>
+          <span className="jt-str">{s.replace(/\s+/g, ' ').slice(0, 60)}…</span> <span className="jt-meta">{s.length.toLocaleString()} 字</span>
+        </summary>
+      }
+    >
+      {() => <pre className="jt-pre">{s}</pre>}
+    </Fold>
   );
 }
 
@@ -50,22 +78,29 @@ function Node({ k, v, depth, openDepth }: { k: ReactNode; v: unknown; depth: num
     );
   const entries: [string, unknown][] = Array.isArray(v) ? v.map((x, i) => [String(i), x]) : Object.entries(v);
   return (
-    <details className="jt-node" open={depth < openDepth}>
-      <summary className="jt-row">
-        <span className="jt-key">{k}</span>
-        <span className="jt-meta">{summary(v)}</span>
-      </summary>
-      <div className="jt-children">
-        {entries.length === 0 ? (
-          <span className="jt-null">（空）</span>
-        ) : (
-          entries.map(([ck, cv]) => {
-            const label = Array.isArray(v) ? itemLabel(cv) : '';
-            return <Node key={ck} k={label ? `${Number(ck) + 1}. ${label}` : Array.isArray(v) ? `${Number(ck) + 1}.` : ck} v={cv} depth={depth + 1} openDepth={openDepth} />;
-          })
-        )}
-      </div>
-    </details>
+    <Fold
+      className="jt-node"
+      open={depth < openDepth}
+      summary={
+        <summary className="jt-row">
+          <span className="jt-key">{k}</span>
+          <span className="jt-meta">{summary(v)}</span>
+        </summary>
+      }
+    >
+      {() => (
+        <div className="jt-children">
+          {entries.length === 0 ? (
+            <span className="jt-null">（空）</span>
+          ) : (
+            entries.map(([ck, cv]) => {
+              const label = Array.isArray(v) ? itemLabel(cv) : '';
+              return <Node key={ck} k={label ? `${Number(ck) + 1}. ${label}` : Array.isArray(v) ? `${Number(ck) + 1}.` : ck} v={cv} depth={depth + 1} openDepth={openDepth} />;
+            })
+          )}
+        </div>
+      )}
+    </Fold>
   );
 }
 
