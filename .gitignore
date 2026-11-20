@@ -1,0 +1,13 @@
+# 執行環境、模型、存檔（startserver 下載或產生，不進 git）
+/runtime/
+/models/*
+!/models/README.md
+/data/
+cheruno.local.json
+
+node_modules/
+__pycache__/
+.venv/
+*.tsbuildinfo
+.env
+.env.*

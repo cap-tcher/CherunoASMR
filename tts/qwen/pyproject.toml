@@ -1,0 +1,26 @@
+# Qwen3-TTS VoiceDesign 伺服器（tts/qwen_server.py）的 Python 環境；startserver 用
+#   UV_PROJECT_ENVIRONMENT=runtime/qwen/.venv uv sync --project tts/qwen --frozen
+# 建在 runtime/qwen/.venv。torch 用 CUDA 12.8 版（GTX 10 系列到 RTX 50 系列都能跑）
+[project]
+name = "cheruno-qwen"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch==2.7.1",
+    "torchaudio==2.7.1",
+    "qwen-tts==0.1.1",
+    "numpy",
+    "soundfile",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
