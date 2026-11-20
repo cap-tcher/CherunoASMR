@@ -1,5 +1,5 @@
 // 整理進名詞圖鑑（ADV3.0 F-73 handleAutoGlossary，L2118–L2230）：把一段台詞交給 LLM，依 json_schema 回 create／update 操作。
-import { streamChatRetry, type LlmEndpoint } from './llm.ts';
+import { parseModelJson, streamChatRetry, type LlmEndpoint } from './llm.ts';
 import type { ChatMessage, GlossaryEntry } from './prompt.ts';
 import { fill, type PromptTemplates } from './templates.ts';
 
@@ -82,7 +82,7 @@ export async function organizeGlossary(o: { endpoint: LlmEndpoint; model: string
     { model: o.model, temperature: 0.2, maxTokens: 1500, schema: glossarySchema(), onDelta: () => {}, messages: buildGlossaryMessages(o.text, relatedEntries(o.entries, o.text), o.templates) },
     o.fetchFn,
   );
-  const parsed = JSON.parse(raw) as { glossary_ops?: unknown };
+  const parsed = parseModelJson<{ glossary_ops?: unknown }>(raw, '圖鑑整理');
   if (!Array.isArray(parsed.glossary_ops)) throw new GlossaryFormatError(`輸出沒有 glossary_ops：${raw.slice(0, 120)}`);
   return applyGlossaryOps(o.entries, parsed.glossary_ops as GlossaryOp[]);
 }

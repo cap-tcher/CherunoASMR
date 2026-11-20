@@ -125,6 +125,7 @@ export const MIO: Character = {
   subName: '澪',
   ageSex: '20 歲 · 女',
   relation: '隔壁的大學學姊',
+  callName: 'テツくん',
   appearance: '及肩黑髮、垂眼、寬鬆米色毛衣，總是捧著一杯熱可可。',
   bio: '住在隔壁的大學學姊，主修圖書館學，晚上在家打工翻譯。',
   personality: '溫柔、慢條斯理、偶爾調皮；照顧人時很固執。',
@@ -137,7 +138,7 @@ export const MIO: Character = {
 };
 
 export const EMPTY_CHARACTER: Omit<Character, 'id'> = {
-  name: '', reading: '', subName: '', ageSex: '', relation: '', appearance: '', bio: '', personality: '', behavior: '', catchphrase: '', secret: '', voiceDesc: '', image: null, voice: null,
+  name: '', reading: '', subName: '', ageSex: '', relation: '', callName: '', appearance: '', bio: '', personality: '', behavior: '', catchphrase: '', secret: '', voiceDesc: '', image: null, voice: null,
 };
 
 /** 舊版的系統提示詞預設值：存檔裡還是一字不差的這段（使用者沒改過）就換成新版（migrate） */
@@ -150,7 +151,7 @@ const DEFAULT_SYSTEM =
 export const DEFAULT_DATA: AppData = {
   v: 2,
   settings: { llmBase: 'http://localhost:1234/v1', apiKey: '', model: '', temperature: 0.8, maxTokens: 1800, audioBase: 'http://127.0.0.1:8790', engine: 'zonos', sleepMinutes: 45, contextNormal: 70, contextIntimacy: 70, irodoriSteps: 16, rag: DEFAULT_RAG, noThinking: true, stateSeparately: true, linesMin: 3, linesMax: 8 },
-  protagonist: { name: 'テツ', reading: 'てつ', callName: 'テツくん', subName: '阿哲', gender: '男性', appearance: '', bio: '大學生，最近在趕期末報告；怕打雷；養了一隻橘貓みかん。' },
+  protagonist: { name: 'テツ', reading: 'てつ', subName: '阿哲', gender: '男性', appearance: '', bio: '大學生，最近在趕期末報告；怕打雷；養了一隻橘貓みかん。' },
   characters: [],
   activeId: null,
   scenes: [
@@ -205,7 +206,7 @@ export function newSaveData(settings: Settings): AppData {
   return {
     ...DEFAULT_DATA,
     settings,
-    protagonist: { name: '', reading: '', callName: '', subName: '', gender: '', appearance: '', bio: '' },
+    protagonist: { name: '', reading: '', subName: '', gender: '', appearance: '', bio: '' },
     characters: [],
     activeId: null,
     scenes: [],
@@ -258,6 +259,10 @@ export function migrate(d: AppData): AppData {
     if (cur && next !== undefined && cur[u.key] === u.from) cur[u.key] = next;
   }
   d.protagonist.gender ??= '';
+  // 遷移：「她怎麼叫你」2026-11-20 從主角移到每張角色卡（每個角色叫法不同）：舊存檔主角的稱呼複製到還沒填的角色，主角不再存
+  const oldCall = (d.protagonist as Protagonist & { callName?: string }).callName;
+  for (const c of d.characters) c.callName ??= oldCall ?? '';
+  delete (d.protagonist as Protagonist & { callName?: string }).callName;
   d.clock ??= { on: true, start: '00:00' }; // 故事時鐘是 2026-11-19 新增的設定
   d.protagonist.appearance ??= '';
   return d;

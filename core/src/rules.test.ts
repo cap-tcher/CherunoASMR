@@ -1,6 +1,6 @@
 // 範例資料只用成年角色、非性內容（見 Obsidian/UI/ADV3.0功能對照.md）
 import { describe, expect, it } from 'vitest';
-import { RulesImportError, checkInclude, exportRules, fieldsFromDefinitions, importRules, includeMatch, resolveLayout, type RulesConfig, fieldsSchema, fieldsFromRaw, MAX_FIELDS } from './rules.ts';
+import { RulesImportError, checkInclude, exportRules, fieldsFromDefinitions, importRules, includeMatch, resolveLayout, type RulesConfig, fieldsSchema, fieldsFromRaw, MAX_FIELDS, layoutFromSections } from './rules.ts';
 import type { StateField } from './state.ts';
 
 const fields: StateField[] = [
@@ -89,8 +89,36 @@ describe('fieldsFromDefinitions', () => {
       return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify({ fields: fields.map(flat) }) } }] })}\n\ndata: [DONE]\n\n`);
     }) as unknown as typeof fetch;
     const r = await fieldsFromDefinitions({ endpoint: { baseUrl: 'http://x/v1', apiKey: '' }, model: 'm', definitions: '好感度 0～100', system: 'sys', fetchFn });
-    expect(r.fields).toHaveLength(5);
+    expect(r.format.fields).toHaveLength(5);
+    expect(r.layout).toEqual([]); // 沒標分段＝照類型自動分配
     expect(JSON.parse(body).response_format.type).toBe('json_schema');
+  });
+});
+
+describe('layoutFromSections', () => {
+  type Raw = Parameters<typeof fieldsFromRaw>[0]['fields'][number];
+  const num = (key: string, section: string) => ({ ...flat({ key, label: key, type: 'number', min: 0, max: 200, maxDelta: 10, initial: 0 }), section }) as Raw;
+  const en = (key: string, section: string) => ({ ...flat({ key, label: key, type: 'enum', options: ['平穩', '急促'], initial: '平穩' }), section }) as Raw;
+  it('狀態定義的「# 生理數值」「# 親密記數」→ 分段區塊（照出現順序；欄位可混類型）', () => {
+    const raw = { fields: [num('heart', '# 生理數值'), en('breath', '生理數值'), num('kiss', '親密記數'), num('hand', '親密記數'), en('blush', '親密記數')] };
+    const format = fieldsFromRaw(raw);
+    expect(layoutFromSections(raw, format)).toEqual([
+      { type: 'section', title: '生理數值', fields: ['heart', 'breath'] },
+      { type: 'section', title: '親密記數', fields: ['kiss', 'hand', 'blush'] },
+    ]);
+    // 面板／提示詞看得到每個分段的每個欄位
+    expect(resolveLayout(layoutFromSections(raw, format), format.fields).map((b) => [b.title, b.fields.map((f) => f.key)])).toEqual([
+      ['生理數值', ['heart', 'breath']],
+      ['親密記數', ['kiss', 'hand', 'blush']],
+    ]);
+  });
+  it('沒標分段的欄位與心裡話（hidden）照預設區塊放；一個分段都沒有＝空版面', () => {
+    const inner = { ...flat({ key: 'inner', label: '心裡話', type: 'text', maxLength: 40, initial: '', hidden: true }), section: '生理數值' } as Raw;
+    const raw = { fields: [num('heart', '生理數值'), num('love', ''), inner] };
+    const l = layoutFromSections(raw, fieldsFromRaw(raw));
+    expect(l[0]).toEqual({ type: 'section', title: '生理數值', fields: ['heart'] });
+    expect(l.slice(1).map((b) => b.type)).toEqual(['bars', 'text']);
+    expect(layoutFromSections({ fields: [num('a', ''), num('b', '')] }, fieldsFromRaw({ fields: [num('a', ''), num('b', '')] }))).toEqual([]);
   });
 });
 

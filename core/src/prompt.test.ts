@@ -14,6 +14,7 @@ export const MIO: CharacterCard = {
   subName: '澪',
   ageSex: '20 歲 · 女',
   relation: '隔壁的學姊',
+  callName: 'テツくん',
   appearance: '及肩黑髮',
   bio: '',
   personality: '溫柔',
@@ -34,7 +35,7 @@ const input = (over: Partial<PromptInput> = {}): PromptInput => ({
   sleepInstruction: '台詞逐漸變短。',
   statDefs: '好感度：被依賴 +3～+8',
   character: MIO,
-  protagonist: { name: 'テツ', reading: 'てつ', callName: 'テツくん', subName: '阿哲', gender: '男性', appearance: '', bio: '' },
+  protagonist: { name: 'テツ', reading: 'てつ', subName: '阿哲', gender: '男性', appearance: '', bio: '' },
   scene: { name: '雨夜書房', desc: '窗外雨聲' },
   glossary: GLOSSARY,
   world: null,
@@ -84,7 +85,10 @@ describe('buildMessages', () => {
     const [sys] = buildMessages(input({ tone: '再撒嬌一點' }), T);
     const text = sys!.content as string;
     expect(text).toContain('雨夜書房');
-    expect(text).toContain('呼び方：テツくん');
+    // 稱呼在角色卡裡、緊接在關係後；聽者段落在角色段落前（2026-11-20）
+    expect(text).toMatch(/聴き手との関係：[^\n]*\n聴き手の呼び方：テツくん/);
+    expect(text.indexOf(T.secListener)).toBeLessThan(text.indexOf(T.secCharacter));
+    expect(buildMessages(input({ character: { ...MIO, callName: 'お兄さん' } }), T)[0]!.content as string).toContain('聴き手の呼び方：お兄さん');
     expect(text).toContain('被依賴 +3～+8');
     expect(text).toContain('再撒嬌一點');
   });
@@ -136,7 +140,7 @@ describe('故事時鐘（ADV3.0 F-69）', () => {
 describe('聽者欄位（ADV3.0 F-23／F-25）', () => {
   it('性別、外觀有填才帶，空白整行省略', () => {
     const sys = (o: Partial<PromptInput>) => buildMessages(input(o), T)[0]!.content as string;
-    const u = { name: 'テツ', reading: 'てつ', callName: 'テツくん', subName: '阿哲', gender: '男性', appearance: '戴眼鏡', bio: '' };
+    const u = { name: 'テツ', reading: 'てつ', subName: '阿哲', gender: '男性', appearance: '戴眼鏡', bio: '' };
     expect(sys({ protagonist: u })).toContain('性別：男性');
     expect(sys({ protagonist: u })).toContain('外見：戴眼鏡');
     const listener = (x: string) => x.slice(x.indexOf(T.secListener), x.indexOf('\n\n', x.indexOf(T.secListener)));

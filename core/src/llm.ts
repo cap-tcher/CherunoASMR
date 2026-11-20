@@ -125,13 +125,18 @@ export const OPENAI_BASE = 'https://api.openai.com/v1';
 export const isOpenAI = (baseUrl: string) => /api\.openai\.com/.test(baseUrl);
 
 /**
- * 「關掉思考」送什麼：Gemini 只有 2.5 能用 none 關掉，3、4 關不掉、最低是 minimal（官方文件）；
- * OpenAI 的 gpt-6.2-astra／sol 沒有 none、最低是 low，其他（terra、luna 等）有 none（官方模型頁 2026-11-20）；其他端點（LM Studio）送 none
+ * 「關掉思考」送什麼（盡量少想）：
+ * - Gemini：每個模型支援的等級不同（aistudio.google.com/docs/thinking 的 Thinking levels 表，快照 datasets/gemini-api/sources/aistudio_docs_thinking.html）。
+ *   2.5 Flash／Flash-Lite 能用 none 關掉（2.5 Pro 關不掉）；表上列了 minimal 的模型送 minimal；其他送 low——表上每個聊天模型都支援 low，
+ *   minimal 在 Gemini 4、gemini-3.8-flash 等模型會回 400「Thinking level MINIMAL is not supported」
+ * - OpenAI 的 gpt-6.2-astra／sol 沒有 none、最低是 low，其他（terra、luna 等）有 none（官方模型頁 2026-11-20）；其他端點（LM Studio）送 none
  */
+const GEMINI_MINIMAL = /^(models\/)?gemini-(3\.6-flash|3\.5-flash-lite|3\.1-flash-lite|3-flash|robotics-er)/;
 export function thinkingOff(baseUrl: string, model: string): string {
   if (isOpenAI(baseUrl)) return /astra|sol/.test(model) ? 'low' : 'none';
   if (!isGemini(baseUrl)) return 'none';
-  return /gemini-2\.5/.test(model) ? 'none' : 'minimal';
+  if (/gemini-2\.5-flash/.test(model)) return 'none';
+  return GEMINI_MINIMAL.test(model) ? 'minimal' : 'low';
 }
 
 /**
@@ -174,6 +179,23 @@ export function chatModels(baseUrl: string, models: string[]): string[] {
 
 /** LLM 太久沒回任何資料：和使用者按「停止」分開，讓畫面說清楚原因 */
 export class LlmIdleError extends Error {}
+
+/** 模型輸出達到 max_tokens 被截斷（串流的 finish_reason＝length；Gemini 的 MAX_TOKENS 在 OpenAI 相容端點也是 length）：結尾的 JSON 一定殘缺，直接講清楚，不讓它變成看不懂的解析錯誤 */
+export class LlmTruncatedError extends Error {}
+
+/** 模型回的 JSON 解析不了：講出錯位置前後的內容（看得出是哪個欄位、哪個字元），不改寫、不修補模型的輸出 */
+export class ModelJsonError extends Error {}
+export function parseModelJson<T>(raw: string, what: string): T {
+  if (!raw.trim()) throw new ModelJsonError(`${what}：模型沒有輸出任何內容`);
+  try {
+    return JSON.parse(raw) as T;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const pos = Number(/position (\d+)/.exec(msg)?.[1] ?? NaN);
+    const near = Number.isFinite(pos) ? `；出錯位置（第 ${pos} 字）前後：「${raw.slice(Math.max(0, pos - 40), pos)}⟦這裡⟧${raw.slice(pos, pos + 40)}」` : '';
+    throw new ModelJsonError(`${what}的 JSON 格式錯誤（${msg}）${near}`);
+  }
+}
 
 /** 串流 chat completions（SSE）。回傳完整文字。 */
 export async function streamChat(ep: LlmEndpoint, req: ChatRequest, fetchFn: FetchFn = fetch): Promise<string> {
@@ -223,6 +245,9 @@ async function streamOnce(ep: LlmEndpoint, req: ChatRequest, fetchFn: FetchFn, s
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let pending = '';
   let full = '';
+  let finish = '';
+  const truncated = () =>
+    new LlmTruncatedError(`模型輸出達到上限（${req.maxTokens} token）被截斷，結果不完整：已填的欄位或定義太長時，模型要整段抄回輸出；縮短一點再試，或換輸出上限較大的模型`);
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -234,15 +259,20 @@ async function streamOnce(ep: LlmEndpoint, req: ChatRequest, fetchFn: FetchFn, s
       pending = pending.slice(nl + 1);
       if (!line.startsWith('data:')) continue;
       const data = line.slice(5).trim();
-      if (data === '[DONE]') return full;
-      const chunk = JSON.parse(data) as { choices?: { delta?: { content?: string } }[]; error?: { message?: string } };
+      if (data === '[DONE]') {
+        if (finish === 'length') throw truncated();
+        return full;
+      }
+      const chunk = JSON.parse(data) as { choices?: { delta?: { content?: string }; finish_reason?: string | null }[]; error?: { message?: string } };
       if (chunk.error) throw new LlmHttpError(res.status, `LLM 串流錯誤：${chunk.error.message ?? data}`);
       const d = chunk.choices?.[0]?.delta?.content;
       if (d) {
         full += d;
         req.onDelta(d);
       }
+      finish = chunk.choices?.[0]?.finish_reason ?? finish;
     }
   }
+  if (finish === 'length') throw truncated();
   return full;
 }

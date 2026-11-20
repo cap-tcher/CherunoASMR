@@ -5,7 +5,7 @@ import { StateTimeline, type SecretFormat } from './state.ts';
 import { DEFAULT_TEMPLATES } from './templates.ts';
 
 const format: SecretFormat = { fields: [{ key: 'affection', label: '好感度', type: 'number', min: 0, max: 100, maxDelta: 5, initial: 10 }] };
-const card: CharacterCard = { id: 'mio', name: '澪', reading: 'みお', subName: '澪', ageSex: '', relation: '', appearance: '', bio: '', personality: '', behavior: '', catchphrase: '', secret: '其實會怕黑', voiceDesc: '' };
+const card: CharacterCard = { id: 'mio', name: '澪', reading: 'みお', subName: '澪', ageSex: '', relation: '', callName: '', appearance: '', bio: '', personality: '', behavior: '', catchphrase: '', secret: '其實會怕黑', voiceDesc: '' };
 
 /** 假 LLM：每次都想把好感度設成 100；記下 prompt 裡帶的目前狀態。 */
 function fakeLlm(seenStates: string[]): typeof fetch {
@@ -33,7 +33,7 @@ const opts = (timeline: StateTimeline, segmentId: string, fetchFn: typeof fetch,
     sleepInstruction: '',
     statDefs: '',
     character: card,
-    protagonist: { name: '', reading: '', callName: '', subName: '', gender: '', appearance: '', bio: '' },
+    protagonist: { name: '', reading: '', subName: '', gender: '', appearance: '', bio: '' },
     scene: null,
     glossary: null,
     world: null,

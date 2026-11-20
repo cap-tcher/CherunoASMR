@@ -44,5 +44,20 @@ export const TEMPLATE_UPGRADES: { group: string; key: string; from: string }[] =
     "group": "fields",
     "key": "system",
     "from": "把「數值與狀態定義」整理成欄位表。key 用英數與底線；數值要有 min／max／每段最多變化 maxDelta（定義沒寫就給合理的小值，避免無限增值）；有固定選項的用 enum；短文字用 text 並給 maxLength；可增減的狀態標籤用 tags 並給 maxItems；不說出口的內心話設 hidden=true。"
-  }
+  },
+  {
+    "group": "fields",
+    "key": "system",
+    "from": "把「數值與狀態定義」整理成欄位表。key 用英數與底線；數值要有 min／max／每段最多變化 maxDelta（定義沒寫就給合理的小值，避免無限增值）；有固定選項的用 enum；短文字用 text 並給 maxLength；可增減的狀態標籤用 tags 並給 maxItems；不說出口的內心話設 hidden=true；會一直新增項目、每項有等級與狀態的（例：身體部位）用 zones；名稱對應短文字值、項目會增加的（例：心跳 70bpm、呼吸 急促）用 kv。"
+  },
+  {
+    "group": "segment",
+    "key": "card",
+    "from": "名前：{{name}}（{{reading}}）\n年齢・性別：{{ageSex}}\n聴き手との関係：{{relation}}\n外見：{{appearance}}\n背景：{{bio}}\n性格：{{personality}}\n話し方・癖：{{behavior}}\n口癖：{{catchphrase}}"
+  },
+  {
+    "group": "segment",
+    "key": "listener",
+    "from": "名前：{{nameWithReading}}\n呼び方：{{callName}}\n字幕での表記：{{subName}}\n性別：{{gender}}\n外見：{{appearance}}\nプロフィール：{{bio}}"
+  },
 ];

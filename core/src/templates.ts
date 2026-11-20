@@ -40,7 +40,7 @@ export interface PromptTemplates {
     | 'output' | 'outputState' | 'stateAsk' | 'stateAskSecret' | 'translationZh' | 'translationZhEn'
     | 'modeInteractive' | 'modeInfinite' | 'modeSleep' | 'sleepDefault'
   >;
-  character: Group<'system' | 'intro' | 'withImage' | 'direction' | 'tags' | 'filled' | 'secretTemplate' | 'fields' | 'hint_name' | 'hint_reading' | 'hint_subName' | 'hint_ageSex' | 'hint_relation' | 'hint_appearance' | 'hint_bio' | 'hint_personality' | 'hint_behavior' | 'hint_catchphrase' | 'hint_secret' | 'hint_voiceDesc'>;
+  character: Group<'system' | 'intro' | 'withImage' | 'direction' | 'tags' | 'filled' | 'secretTemplate' | 'fields' | 'listener' | 'hint_name' | 'hint_reading' | 'hint_subName' | 'hint_ageSex' | 'hint_relation' | 'hint_callName' | 'hint_appearance' | 'hint_bio' | 'hint_personality' | 'hint_behavior' | 'hint_catchphrase' | 'hint_secret' | 'hint_voiceDesc'>;
   chapters: Group<'system' | 'latest' | 'noLatest' | 'body'>;
   fields: Group<'system'>;
   glossary: Group<'system' | 'user'>;
@@ -70,8 +70,8 @@ export const DEFAULT_TEMPLATES: PromptTemplates = {
     referenceItem: '{{header}}\n{{text}}',
     secretGenBody: '這個角色還沒有秘密。這段在 secret 欄位依下面的格式寫一段（正體中文，200 字內；之後每段都會帶，台詞裡不要說出來）：\n{{secretTemplate}}',
     secOpening: '## 開場',
-    card: '名前：{{name}}（{{reading}}）\n年齢・性別：{{ageSex}}\n聴き手との関係：{{relation}}\n外見：{{appearance}}\n背景：{{bio}}\n性格：{{personality}}\n話し方・癖：{{behavior}}\n口癖：{{catchphrase}}',
-    listener: '名前：{{nameWithReading}}\n呼び方：{{callName}}\n字幕での表記：{{subName}}\n性別：{{gender}}\n外見：{{appearance}}\nプロフィール：{{bio}}',
+    card: '名前：{{name}}（{{reading}}）\n年齢・性別：{{ageSex}}\n聴き手との関係：{{relation}}\n聴き手の呼び方：{{callName}}\n外見：{{appearance}}\n背景：{{bio}}\n性格：{{personality}}\n話し方・癖：{{behavior}}\n口癖：{{catchphrase}}',
+    listener: '名前：{{nameWithReading}}\n字幕での表記：{{subName}}\n性別：{{gender}}\n外見：{{appearance}}\nプロフィール：{{bio}}',
     scene: '名稱：{{name}}\n說明：{{desc}}',
     glossaryItem: '- {{term}}（読み：{{reading}}{{subNamePart}}）{{notePart}}',
     listItem: '- {{text}}',
@@ -104,11 +104,13 @@ export const DEFAULT_TEMPLATES: PromptTemplates = {
     filled: '以下欄位使用者已經填好，其他欄位要與它們一致：\n{{filled}}',
     secretTemplate: 'secret 欄依照下面的「秘密生成格式」逐項寫（保留項目標題，可多行）：\n{{template}}',
     fields: '各欄位：\n{{fields}}',
+    listener: '聽者（角色說話的對象）：{{listener}}',
     hint_name: '角色名稱，日文表記＋括號讀み，例「澪（みお）」',
     hint_reading: '名字的平假名讀み',
     hint_subName: '字幕顯示用的名字（正體中文或原文）',
     hint_ageSex: '年齡與性別，例「20 歲 · 女」；角色一律是成年人',
     hint_relation: '與聽者的關係，例「隔壁的大學學姊」',
+    hint_callName: '她怎麼叫聽者（日文），配合兩人的關係，例「テツくん」「先輩」「お兄さん」',
     hint_appearance: '外觀描述（正體中文，1～2 句）',
     hint_bio: '背景故事（正體中文，1～2 句）',
     hint_personality: '性格關鍵字（正體中文）',
@@ -131,7 +133,7 @@ export const DEFAULT_TEMPLATES: PromptTemplates = {
   },
   fields: {
     system:
-      '把「數值與狀態定義」整理成欄位表。key 用英數與底線；數值要有 min／max／每段最多變化 maxDelta（定義沒寫就給合理的小值，避免無限增值）；有固定選項的用 enum；短文字用 text 並給 maxLength；可增減的狀態標籤用 tags 並給 maxItems；不說出口的內心話設 hidden=true；會一直新增項目、每項有等級與狀態的（例：身體部位）用 zones；名稱對應短文字值、項目會增加的（例：心跳 70bpm、呼吸 急促）用 kv。',
+      '把「數值與狀態定義」整理成欄位表。key 用英數與底線；數值要有 min／max／每段最多變化 maxDelta（定義沒寫就給合理的小值，避免無限增值）；有固定選項的用 enum；短文字用 text 並給 maxLength；可增減的狀態標籤用 tags 並給 maxItems；不說出口的內心話設 hidden=true；會一直新增項目、每項有等級與狀態的（例：身體部位）用 zones；名稱對應短文字值、項目會增加的（例：心跳 70bpm、呼吸 急促）用 kv。定義有分段標題（例：「# 生理數值」）就把每個欄位的 section 填成它所屬的標題；數值有分級（例：0～50 初識、100～500 熟人）就寫進 tiers，有單位就寫進 unit；zones 的 levelLabel 是等級的名稱（例：開發度），不是單位。',
   },
   voice: {
     qwenDefault: '若い女性の声。やわらかく落ち着いた、親しみのある話し方。',
@@ -170,8 +172,8 @@ export const TEMPLATE_META: { [G in keyof PromptTemplates]: { title: string; des
       referenceItem: { label: '參考範例的一個片段', rows: 2, vars: V({ header: '片段表頭（場景等）', text: '對話內容' }) },
       secretGenBody: { label: '角色還沒有秘密時的指示', rows: 3, vars: V({ secretTemplate: '秘密生成格式' }) },
       secOpening: { label: '段落標題：開場（只在第一段）', vars: {} },
-      card: { label: '角色卡', rows: 8, vars: V({ name: '名字', reading: '讀み', ageSex: '年齡與性別', relation: '與你的關係', appearance: '外觀', bio: '背景', personality: '性格', behavior: '行為模組', catchphrase: '口頭禪' }) },
-      listener: { label: '聽者（主角）', rows: 6, vars: V({ nameWithReading: '名字（含讀み）', callName: '她怎麼叫你', subName: '字幕名', gender: '性別', appearance: '外觀', bio: '關於你' }) },
+      card: { label: '角色卡', rows: 8, vars: V({ name: '名字', reading: '讀み', ageSex: '年齡與性別', relation: '與你的關係', callName: '她怎麼叫你', appearance: '外觀', bio: '背景', personality: '性格', behavior: '行為模組', catchphrase: '口頭禪' }) },
+      listener: { label: '聽者（主角）', rows: 6, vars: V({ nameWithReading: '名字（含讀み）', callName: '她怎麼叫你（目前角色的）', subName: '字幕名', gender: '性別', appearance: '外觀', bio: '關於你' }) },
       scene: { label: '情境', rows: 2, vars: V({ name: '情境名稱', desc: '說明' }) },
       glossaryItem: { label: '圖鑑的一條', vars: V({ term: '表記', reading: '讀み', subNamePart: '「／字幕：譯名」或空', notePart: '「：說明」或空' }) },
       listItem: { label: '回憶／歷史的一條', vars: V({ text: '內容' }) },
@@ -206,12 +208,14 @@ export const TEMPLATE_META: { [G in keyof PromptTemplates]: { title: string; des
       tags: { label: '快速標籤', vars: V({ tags: '選的標籤（用、分隔）' }) },
       filled: { label: '已填欄位', rows: 2, vars: V({ filled: '使用者已填的欄位清單' }) },
       secretTemplate: { label: '秘密生成格式', rows: 2, vars: V({ template: '系統核心 › 秘密規則的秘密生成格式' }) },
-      fields: { label: '欄位清單', rows: 2, vars: V({ fields: '各欄位說明（下面 12 欄）' }) },
+      fields: { label: '欄位清單', rows: 2, vars: V({ fields: '各欄位說明（下面 13 欄）' }) },
+      listener: { label: '聽者', vars: V({ listener: '聽者的名字（含讀み）' }) },
       hint_name: { label: '欄位說明：名字', vars: {} },
       hint_reading: { label: '欄位說明：讀み', vars: {} },
       hint_subName: { label: '欄位說明：字幕名', vars: {} },
       hint_ageSex: { label: '欄位說明：年齡與性別', vars: {} },
       hint_relation: { label: '欄位說明：與你的關係', vars: {} },
+      hint_callName: { label: '欄位說明：她怎麼叫你', vars: {} },
       hint_appearance: { label: '欄位說明：外觀', vars: {} },
       hint_bio: { label: '欄位說明：背景', vars: {} },
       hint_personality: { label: '欄位說明：性格', vars: {} },

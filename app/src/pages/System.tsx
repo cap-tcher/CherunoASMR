@@ -58,7 +58,7 @@ const TPL_SUB: { k: string; label: string; test: (key: string) => boolean }[] = 
 const KIND: Record<ConnectionResult['kind'], string> = { ok: '已連線', invalid_key: 'API key 無效', rate_limited: '請求太頻繁', timeout: '逾時', network: '連不上', http_error: 'HTTP 錯誤' };
 const ENGINES: Record<Engine, string> = { irodori: 'Irodori-TTS v4.1-Small（日文，囁き）', zonos: 'ZONOS3-Mini（快，每句即時合成）', 'qwen-comfy': 'Qwen3-TTS VoiceDesign（慢，適合設計聲音）' };
 const ENGINE_SERVICE: Record<Engine, TtsService> = { irodori: 'irodori', zonos: 'zonos', 'qwen-comfy': 'qwen' };
-const BLOCK_LABEL: Record<PanelBlock['type'], string> = { bars: '數值條', rows: '欄位列', tags: '標籤', zones: '可疊加清單', kv: '數值表', text: '文字', secret: '遮住的文字' };
+const BLOCK_LABEL: Record<PanelBlock['type'], string> = { section: '分段（任何欄位）', bars: '數值條', rows: '欄位列', tags: '標籤', zones: '可疊加清單', kv: '數值表', text: '文字', secret: '遮住的文字' };
 
 const UNLOAD_STOP = 'LM Studio 的模型卸載了，這段已停止（不然斷線重連會把模型載回來）；要繼續就到 系統核心 › 連線 按「連線」，再按重試';
 
@@ -78,6 +78,7 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
   const [fmt, setFmt] = useState<SecretFormat>(data.secretFormat);
   const [fmtErr, setFmtErr] = useState('');
   const [genBusy, setGenBusy] = useState(false);
+  const [genLayout, setGenLayout] = useState<PanelBlock[] | null>(null); // 由狀態定義產生的分段，按「套用欄位表」時一起寫進面板版面
   const [importMsg, setImportMsg] = useState('');
   const [tpl, setTpl] = useState<PromptTemplates>(data.templates);
   const [incDraft, setIncDraft] = useState<Record<number, string>>({});
@@ -285,7 +286,8 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
           return st;
         }
       };
-      update((d) => ({ ...d, secretFormat: fmt, characters: d.characters.map((c) => (c.state ? { ...c, state: migrate(c.state) } : c)) }));
+      update((d) => ({ ...d, secretFormat: fmt, ...(genLayout ? { layout: genLayout } : {}), characters: d.characters.map((c) => (c.state ? { ...c, state: migrate(c.state) } : c)) }));
+      setGenLayout(null);
       props.toast('欄位表已套用；角色的狀態補上新欄位（初始值），這次對話會重新開始');
     } catch (e) {
       setFmtErr(e instanceof Error ? e.message : String(e));
@@ -299,9 +301,11 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
     setGenBusy(true);
     try {
       const r = await fieldsFromDefinitions({ endpoint: endpointOf(s), fetchFn: traced('欄位表'), model: s.model, definitions: data.statDefs, system: data.templates.fields.system });
-      setFmt(r);
+      setFmt(r.format);
+      setGenLayout(r.layout.length ? r.layout : null);
       setFmtErr('');
-      props.toast(`產生了 ${r.fields.length} 個欄位，確認後按「套用欄位表」`);
+      const secs = r.layout.filter((b) => b.type === 'section').length;
+      props.toast(`產生了 ${r.format.fields.length} 個欄位${secs ? `、${secs} 個分段` : ''}，確認後按「套用欄位表」${secs ? '（分段會一起套用到面板版面）' : ''}`);
     } catch (e) {
       setFmtErr(`產生失敗：${e instanceof Error ? e.message : String(e)}`);
     } finally {

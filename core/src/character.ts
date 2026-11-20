@@ -1,6 +1,6 @@
 // 建立角色（SCR-02）：角色圖（選用）＋方向提示＋快速標籤 → LLM 一次寫好角色卡與日文聲音描述。
 // 重新生成時只填空白欄位（mergeKeepFilled）。
-import { streamChatRetry, type LlmEndpoint } from './llm.ts';
+import { parseModelJson, streamChatRetry, type LlmEndpoint } from './llm.ts';
 import { CARD_TEXT_FIELDS, mergeKeepFilled, type CardTextField, type ChatMessage } from './prompt.ts';
 import { fill, type PromptTemplates } from './templates.ts';
 
@@ -22,6 +22,7 @@ export interface CharacterRequest {
   tags: string[];
   imageDataUrl: string | null; // data:image/...;base64,...
   current: Partial<Record<CardTextField, string>>; // 使用者已填的欄位
+  listener: string; // 聽者名字（含讀み）：她怎麼叫你（callName）要用到
   secretTemplate: string; // 秘密生成格式（系統核心 › 秘密規則）：secret 欄依此模板寫；空字串＝自由寫
 }
 
@@ -30,6 +31,7 @@ export function buildCharacterMessages(r: CharacterRequest, t: CharacterTemplate
   const text = [
     t.intro,
     r.imageDataUrl ? t.withImage : '',
+    r.listener.trim() ? fill(t.listener, { listener: r.listener.trim() }) : '',
     r.direction.trim() ? fill(t.direction, { direction: r.direction.trim() }) : '',
     r.tags.length ? fill(t.tags, { tags: r.tags.join('、') }) : '',
     filled.length ? fill(t.filled, { filled: filled.join('\n') }) : '',
@@ -49,16 +51,10 @@ export class CharacterFormatError extends Error {}
 export async function generateCharacter(o: { endpoint: LlmEndpoint; model: string; request: CharacterRequest; templates: CharacterTemplates; signal?: AbortSignal; fetchFn?: typeof fetch }) {
   const raw = await streamChatRetry(
     o.endpoint,
-    { model: o.model, messages: buildCharacterMessages(o.request, o.templates), schema: characterSchema(o.templates), temperature: 0.9, maxTokens: 1200, ...(o.signal ? { signal: o.signal } : {}), onDelta: () => {} },
+    { model: o.model, messages: buildCharacterMessages(o.request, o.templates), schema: characterSchema(o.templates), temperature: 0.9, maxTokens: 8192, ...(o.signal ? { signal: o.signal } : {}), onDelta: () => {} },
     o.fetchFn,
   );
-  let card: unknown;
-  try {
-    card = JSON.parse(raw);
-  } catch (e) {
-    throw new CharacterFormatError(`角色卡不是合法 JSON：${String(e)}`);
-  }
-  const rec = card as Record<string, unknown>;
+  const rec = parseModelJson<Record<string, unknown>>(raw, '角色卡');
   const missing = CARD_TEXT_FIELDS.filter((k) => typeof rec[k] !== 'string' || !(rec[k] as string).trim());
   if (missing.length) throw new CharacterFormatError(`角色卡缺欄位：${missing.join('、')}`);
   return mergeKeepFilled(o.request.current, rec as Record<CardTextField, string>);

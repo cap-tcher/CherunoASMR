@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { LlmHttpError, LlmIdleError, isReconnectable, streamChat, testConnection, streamChatRetry, thinkingOff, chatModels, GEMINI_BASE, OPENAI_BASE, toOpenAiStrict } from './llm.ts';
+import { LlmHttpError, LlmIdleError, LlmTruncatedError, ModelJsonError, parseModelJson, isReconnectable, streamChat, testConnection, streamChatRetry, thinkingOff, chatModels, GEMINI_BASE, OPENAI_BASE, toOpenAiStrict } from './llm.ts';
 
 let server: Server;
 let base = '';
@@ -144,8 +144,15 @@ data: [DONE]
 describe('Gemini', () => {
   it('關掉思考：Gemini 2.5 送 none、3／4 送 minimal（關不掉）；LM Studio 送 none', () => {
     expect(thinkingOff(GEMINI_BASE, 'gemini-2.5-flash-lite')).toBe('none');
-    expect(thinkingOff(GEMINI_BASE, 'gemini-3.8-flash')).toBe('minimal');
-    expect(thinkingOff(GEMINI_BASE, 'gemini-4-neon')).toBe('minimal');
+    // 官方 Thinking levels 表：minimal 不支援 Gemini 4、3.8-flash；沒列在表上的（例：3.7-flash）送每個模型都支援的 low
+    expect(thinkingOff(GEMINI_BASE, 'gemini-3.8-flash')).toBe('low');
+    expect(thinkingOff(GEMINI_BASE, 'gemini-3.7-flash')).toBe('low');
+    expect(thinkingOff(GEMINI_BASE, 'gemini-4-neon')).toBe('low');
+    expect(thinkingOff(GEMINI_BASE, 'gemini-2.5-pro')).toBe('low');
+    expect(thinkingOff(GEMINI_BASE, 'gemini-2.5-flash')).toBe('none');
+    expect(thinkingOff(GEMINI_BASE, 'gemini-3.6-flash')).toBe('minimal');
+    expect(thinkingOff(GEMINI_BASE, 'gemini-3-flash-preview')).toBe('minimal');
+    expect(thinkingOff(GEMINI_BASE, 'gemini-3.1-flash-lite')).toBe('minimal');
     expect(thinkingOff('http://localhost:1234/v1', 'gemma-4-e2b')).toBe('none');
   });
   it('模型選單只列聊天模型', () => {
@@ -183,5 +190,26 @@ describe('OpenAI', () => {
     expect(body.max_tokens).toBeUndefined();
     expect(body.reasoning_effort).toBe('none');
     expect(JSON.stringify(body.response_format)).not.toContain('maxLength');
+  });
+});
+
+describe('輸出被截斷與 JSON 錯誤要講清楚', () => {
+  const sse = (chunks: object[]) => (async () => new Response(chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n')) as unknown as typeof fetch;
+  const req = { model: 'm', messages: [], schema: {}, temperature: 0, maxTokens: 50, onDelta: () => {} };
+  it('finish_reason＝length（達到 max_tokens）→ LlmTruncatedError，訊息講上限', async () => {
+    const f = sse([{ choices: [{ delta: { content: '{"name":"澪","bio":"很長' } }] }, { choices: [{ delta: {}, finish_reason: 'length' }] }]);
+    await expect(streamChat({ baseUrl: 'http://x/v1', apiKey: '' }, req, f)).rejects.toThrow(LlmTruncatedError);
+    await expect(streamChat({ baseUrl: 'http://x/v1', apiKey: '' }, req, f)).rejects.toThrow('達到上限（50 token）被截斷');
+  });
+  it('正常結束（stop）照常回傳', async () => {
+    const f = sse([{ choices: [{ delta: { content: '{"a":1}' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }]);
+    expect(await streamChat({ baseUrl: 'http://x/v1', apiKey: '' }, req, f)).toBe('{"a":1}');
+  });
+  it('JSON 壞掉時講出錯位置前後的內容（例：模型抄反斜線沒跳脫）', () => {
+    const raw = '{"name":"澪","note":"C:\\path \\u12 結尾"}';
+    expect(() => parseModelJson(raw, '角色卡')).toThrow(ModelJsonError);
+    expect(() => parseModelJson(raw, '角色卡')).toThrow(/角色卡的 JSON 格式錯誤.*出錯位置（第 \d+ 字）前後：「.*⟦這裡⟧/);
+    expect(() => parseModelJson('', '欄位表')).toThrow('欄位表：模型沒有輸出任何內容');
+    expect(parseModelJson<{ a: number }>('{"a":1}', 'x')).toEqual({ a: 1 });
   });
 });

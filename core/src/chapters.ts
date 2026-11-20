@@ -1,7 +1,7 @@
 // 回憶「AI 整理」：照 ADV3.0 的 Chapter Manager（Sources/ADV_3.0.jsx handleAutoGenerateChapters）。
 // 把「最新一章起點之後」的台本交給 LLM，回傳 create／update 操作：延續最新一章就 update（延伸範圍、改寫摘要），
 // 新的場景就 create（可一次多個）。章節之後每段 prompt 帶：最新一章一律帶，其餘看關鍵字有沒有出現。
-import { streamChatRetry, type LlmEndpoint } from './llm.ts';
+import { parseModelJson, streamChatRetry, type LlmEndpoint } from './llm.ts';
 import type { ChatMessage } from './prompt.ts';
 import { fill, type PromptTemplates } from './templates.ts';
 
@@ -112,12 +112,7 @@ export function applyChapterOps(chapters: Chapter[], ops: ChapterOp[]): Chapter[
 export async function organizeChapters(o: { endpoint: LlmEndpoint; model: string; chapters: Chapter[]; transcript: TranscriptEntry[]; templates: ChapterTemplates; fetchFn?: typeof fetch }): Promise<Chapter[]> {
   if (!unprocessed(o.chapters, o.transcript).length) throw new ChapterFormatError('沒有要整理的段落');
   const raw = await streamChatRetry(o.endpoint, { model: o.model, messages: buildChapterMessages(o.chapters, o.transcript, o.templates), schema: chapterSchema(), temperature: 0.4, maxTokens: 1200, onDelta: () => {} }, o.fetchFn);
-  let parsed: { operations?: unknown };
-  try {
-    parsed = JSON.parse(raw) as { operations?: unknown };
-  } catch (e) {
-    throw new ChapterFormatError(`章節整理的輸出不是合法 JSON：${String(e)}`);
-  }
+  const parsed = parseModelJson<{ operations?: unknown }>(raw, '章節整理');
   if (!Array.isArray(parsed.operations)) throw new ChapterFormatError('輸出沒有 operations');
   return applyChapterOps(o.chapters, parsed.operations as ChapterOp[]);
 }

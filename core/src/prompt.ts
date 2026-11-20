@@ -15,6 +15,7 @@ export interface CharacterCard {
   subName: string; // 字幕顯示名
   ageSex: string;
   relation: string; // 與你的關係
+  callName: string; // 她怎麼叫你（每個角色叫法不同；2026-11-20 從主角移過來）
   appearance: string;
   bio: string;
   personality: string;
@@ -24,13 +25,12 @@ export interface CharacterCard {
   voiceDesc: string; // 日文聲音描述（音色設計用）
 }
 
-export const CARD_TEXT_FIELDS = ['name', 'reading', 'subName', 'ageSex', 'relation', 'appearance', 'bio', 'personality', 'behavior', 'catchphrase', 'secret', 'voiceDesc'] as const;
+export const CARD_TEXT_FIELDS = ['name', 'reading', 'subName', 'ageSex', 'relation', 'callName', 'appearance', 'bio', 'personality', 'behavior', 'catchphrase', 'secret', 'voiceDesc'] as const;
 export type CardTextField = (typeof CARD_TEXT_FIELDS)[number];
 
 export interface Protagonist {
   name: string;
   reading: string;
-  callName: string; // 她怎麼叫你
   subName: string; // 字幕名
   gender: string; // ADV3.0 F-23
   appearance: string; // ADV3.0 F-25
@@ -156,8 +156,8 @@ export function buildMessages(p: PromptInput, t: SegmentTemplates): ChatMessage[
   const c = p.character;
   const u = p.protagonist;
   const section = (title: string, body: string) => (body.trim() ? `${title}\n${body.trim()}` : '');
-  const card = fill(t.card, trimAll({ name: c.name, reading: c.reading, ageSex: c.ageSex, relation: c.relation, appearance: c.appearance, bio: c.bio, personality: c.personality, behavior: c.behavior, catchphrase: c.catchphrase }));
-  const listener = fill(t.listener, trimAll({ nameWithReading: u.reading ? `${u.name}（${u.reading}）` : u.name, callName: u.callName, subName: u.subName, gender: u.gender, appearance: u.appearance, bio: u.bio }));
+  const card = fill(t.card, trimAll({ name: c.name, reading: c.reading, ageSex: c.ageSex, relation: c.relation, callName: c.callName, appearance: c.appearance, bio: c.bio, personality: c.personality, behavior: c.behavior, catchphrase: c.catchphrase }));
+  const listener = fill(t.listener, trimAll({ nameWithReading: u.reading ? `${u.name}（${u.reading}）` : u.name, callName: c.callName, subName: u.subName, gender: u.gender, appearance: u.appearance, bio: u.bio }));
   const haystack = scanText(p.context, p.userInput);
   const glossary = p.glossary
     ? pickGlossary(p.glossary, haystack)
@@ -173,8 +173,9 @@ export function buildMessages(p: PromptInput, t: SegmentTemplates): ChatMessage[
   // 親密模式：親密提示詞整段取代系統提示詞（ADV3.0 L1961–L1962）；秘密、狀態、定義、親密劇本只在親密模式帶（F-37、F-63）
   const system = [
     (im ? p.intimacySystem : p.systemPrompt).trim(),
-    section(t.secCharacter, card),
+    // 先介紹聽者、再介紹角色：角色卡的「與聽者的關係」「怎麼叫聽者」都在指聽者（2026-11-20 使用者「送請求的時候理好順序」）
     section(t.secListener, listener),
+    section(t.secCharacter, card),
     section(t.secScene, p.scene ? fill(t.scene, trimAll({ name: p.scene.name, desc: p.scene.desc })) : ''),
     section(t.secWorld, p.world ?? ''),
     section(t.secGlossary, glossary),

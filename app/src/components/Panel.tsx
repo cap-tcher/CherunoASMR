@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 // 聆聽 › 右側「X 的狀態」：照系統核心 › 秘密規則的面板版面顯示；編輯鍵＝在面板內直接改數值（ADV3.0 IntimacyPanel editMode）。
 // 區塊對應 ADV3.0：zones（部位 Lv.＋狀態）、kv（身體數值，可用 include 篩選）、tags（狀態標籤，「名稱：說明」）、text（心裡話，直接顯示）。
 import { tierLabel } from '@cheruno/core';
@@ -56,17 +57,17 @@ export function Panel({ data }: { data: AppData }) {
   const delta = (f: StateField) => {
     if (f.type !== 'number' || !prev || editing) return null;
     const d = (s.panel.snap[f.key] as number) - (prev[f.key] as number);
-    return d ? <span className={d > 0 ? 'd ok-t' : 'd bad-t'}>本段 {d > 0 ? `+${d}` : d}</span> : null;
+    return d ? <span className={d > 0 ? 'd ok-t' : 'd bad-t'}>{d > 0 ? `+${d}` : d}</span> : null;
   };
 
-  /** 數值顯示：值＋單位＋區間標籤（例：158 熟人、80 bpm） */
+  /** 數值顯示：值 單位 變化量 區間標籤（例：158 +8 熟人、80 bpm +5） */
   const numShown = (f: Extract<StateField, { type: 'number' }>) => {
     const v = snap[f.key] as number;
     const tier = tierLabel(f, v);
     return (
       <>
         <span className="v">{String(v)}</span>
-        {f.unit ? <span className="hint"> {f.unit}</span> : null}
+        {f.unit ? <span className="hint"> {f.unit}</span> : null} {delta(f)}
         {tier ? <span className="tier"> {tier}</span> : null}
       </>
     );
@@ -197,11 +198,22 @@ export function Panel({ data }: { data: AppData }) {
             秘密規則還沒有欄位表。到系統核心的秘密規則分頁新增欄位，或由狀態定義產生。
           </p>
         ) : (
-          blocks.map((b, bi) => {
-            const title = <span className="block-title">{b.title}</span>;
+          blocks.map(function renderBlock(b: (typeof blocks)[number], bi: number, _all?: unknown, sub = false): ReactNode {
+            const title = sub ? null : <span className="block-title">{b.title}</span>;
+            // 分段：標題＋每個欄位照自己的類型顯示（數值條、欄位列、標籤、清單）
+            if (b.type === 'section')
+              return (
+                <div key={bi} className="pblock section">
+                  {title}
+                  {b.fields.map((f, fi) =>
+                    renderBlock({ type: f.type === 'number' ? 'bars' : f.type === 'tags' ? 'tags' : f.type === 'zones' ? 'zones' : f.type === 'kv' ? 'kv' : f.hidden ? 'text' : 'rows', title: f.label, fields: [f] }, fi, undefined, true),
+                  )}
+                </div>
+              );
             if (b.type === 'bars')
               return (
-                <div key={bi} className="pblock">
+                <div key={bi} className={sub ? 'sub' : 'pblock'}>
+                  {blocks.filter((x) => x.type === 'bars').length > 1 && title}
                   {b.fields.map((f) =>
                     f.type === 'number' ? (
                       <div key={f.key} className="bar-field">
@@ -210,9 +222,7 @@ export function Panel({ data }: { data: AppData }) {
                           {editing ? (
                             valueEditor(f)
                           ) : (
-                            <span className="num">
-                              {numShown(f)} {delta(f)}
-                            </span>
+                            <span className="num">{numShown(f)}</span>
                           )}
                         </div>
                         <div className="meter">
@@ -225,7 +235,7 @@ export function Panel({ data }: { data: AppData }) {
               );
             if (b.type === 'rows')
               return (
-                <div key={bi} className="pblock">
+                <div key={bi} className={sub ? 'sub' : 'pblock'}>
                   {blocks.filter((x) => x.type === 'rows').length > 1 && title}
                   <dl className="kv">
                     {b.fields.map((f) => (
@@ -235,9 +245,7 @@ export function Panel({ data }: { data: AppData }) {
                           {editing ? (
                             valueEditor(f)
                           ) : f.type === 'number' ? (
-                            <span className="num">
-                              {numShown(f)} {delta(f)}
-                            </span>
+                            <span className="num">{numShown(f)}</span>
                           ) : (
                             String(snap[f.key] ?? '') || '沒有'
                           )}
@@ -249,15 +257,15 @@ export function Panel({ data }: { data: AppData }) {
               );
             if (b.type === 'zones' || b.type === 'kv')
               return (
-                <div key={bi} className="pblock">
-                  {title}
+                <div key={bi} className={sub ? 'sub' : 'pblock'}>
+                  {sub ? <span className="sub-label">{b.title}</span> : title}
                   {b.fields.map((f) => (f.type === 'zones' ? zonesBlock(f) : f.type === 'kv' ? kvBlock(f, b.include) : null))}
                 </div>
               );
             if (b.type === 'tags')
               return (
-                <div key={bi} className="pblock">
-                  {title}
+                <div key={bi} className={sub ? 'sub' : 'pblock'}>
+                  {sub ? <span className="sub-label">{b.title}</span> : title}
                   {b.fields.map((f) => {
                     const tags = (snap[f.key] as string[]) ?? [];
                     return (
@@ -299,8 +307,8 @@ export function Panel({ data }: { data: AppData }) {
               );
             if (b.type === 'text')
               return (
-                <div key={bi} className="pblock text-block">
-                  {title}
+                <div key={bi} className={sub ? 'sub text-block' : 'pblock text-block'}>
+                  {sub ? <span className="sub-label">{b.title}</span> : title}
                   {b.fields.map((f) =>
                     editing ? (
                       <label key={f.key} className="field">

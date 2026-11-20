@@ -201,6 +201,9 @@ p { margin: 0; }
 .zone-row .zl { color: var(--color-ink-2); text-align: right; }
 /* 數值的區間標籤（親密度 158 熟人） */
 .tier { color: var(--color-accent-text); font-size: 0.86em; margin-left: 2px; }
+/* 分段（狀態定義的 # 標題）：子項目照類型顯示，彼此留一點距離 */
+.pblock.section { display: grid; gap: 12px; }
+.pblock.section .sub-label { color: var(--color-ink-2); font-size: 14px; }
 .zone-row .zs { grid-column: 1 / -1; font-size: 13px; color: var(--color-accent-text); }
 .zone-row .d.accent { color: var(--color-accent-text); }
 .zone-edit { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }

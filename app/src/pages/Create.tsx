@@ -16,6 +16,7 @@ const ID_DEFS: [CardTextField, string, string][] = [
   ['subName', '字幕名', '澪'],
   ['ageSex', '年齡與性別', '20 歲，女'],
   ['relation', '與你的關係', '隔壁的大學學姊'],
+  ['callName', '她怎麼叫你', 'テツくん'],
 ];
 const TEXT_DEFS: [CardTextField, string, string][] = [
   ['appearance', '外觀', '外貌特徵、穿著打扮'],
@@ -54,7 +55,7 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
   const [cardBusy, setCardBusy] = useState(false);
   const [cardErr, setCardErr] = useState('');
   const [generated, setGenerated] = useState(!!editing);
-  const [trial, setTrial] = useState(`${data.protagonist.callName || 'ねえ'}、今日もおつかれさま……目、閉じてみよっか。ふふ、いい子だね。`);
+  const [trial, setTrial] = useState(`ねえ、今日もおつかれさま……目、閉じてみよっか。ふふ、いい子だね。`);
   const [cands, setCands] = useState<Candidate[]>([]);
   const [locked, setLocked] = useState<LockedVoice | null>(null);
   const [lockedId, setLockedId] = useState<string | null>(null);
@@ -172,13 +173,13 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
         fetchFn: traced('角色卡'),
         model: s.model,
         templates: data.templates.character,
-        request: { direction, tags, imageDataUrl: image, current: form, secretTemplate: data.secretTemplate },
+        request: { direction, tags, imageDataUrl: image, current: form, secretTemplate: data.secretTemplate, listener: data.protagonist.reading ? `${data.protagonist.name}（${data.protagonist.reading}）` : data.protagonist.name },
       });
       setForm(merged);
       setGenerated(true);
       props.toast(kept ? `已生成角色卡，保留你填的 ${kept} 欄` : '已生成角色卡，可以直接修改');
     } catch (e) {
-      setCardErr(`生成失敗：${e instanceof Error ? e.message : String(e)}${image ? '。如果模型不支援看圖，換一個會看圖的模型，或先拿掉角色圖。' : ''}`);
+      setCardErr(`生成失敗：${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setCardBusy(false);
     }

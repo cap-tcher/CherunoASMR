@@ -1,6 +1,6 @@
 // 秘密規則設定檔：使用者可自訂、可匯入匯出，不寫死在程式碼（對照 ADV3.0 handleImportConfig／handleExportConfig）。
 // 一份設定檔＝系統核心規則＋狀態定義（文字，每段帶）＋秘密生成格式（建立角色時寫秘密的模板）＋面板版面＋欄位表（schema 與上限）。
-import { streamChatRetry, type LlmEndpoint } from './llm.ts';
+import { parseModelJson, streamChatRetry, type LlmEndpoint } from './llm.ts';
 import { SecretFormatError, validateFormat, type SecretFormat, type StateField } from './state.ts';
 
 /**
@@ -9,7 +9,8 @@ import { SecretFormatError, validateFormat, type SecretFormat, type StateField }
  * fields 留空＝依類型自動分配；include 只給 kv：只顯示名稱符合的項目（以 ^ 開頭或 $ 結尾當 regex，其餘精確比對；編輯時全部顯示）。
  */
 export interface PanelBlock {
-  type: 'bars' | 'rows' | 'tags' | 'zones' | 'kv' | 'text' | 'secret';
+  /** section＝分段：任何類型的欄位都能放（狀態定義裡的「# 生理數值」這種標題），面板與提示詞照欄位類型各自顯示 */
+  type: 'bars' | 'rows' | 'tags' | 'zones' | 'kv' | 'text' | 'secret' | 'section';
   title: string;
   fields: string[];
   include?: string[];
@@ -160,7 +161,9 @@ export function resolveLayout(layout: PanelBlock[], fields: StateField[]): { typ
             ? f.type === 'kv'
             : t === 'text' || t === 'secret'
               ? !!f.hidden && f.type === 'text'
-              : (f.type === 'text' || f.type === 'enum') && !f.hidden;
+              : t === 'section'
+                ? !f.hidden
+                : (f.type === 'text' || f.type === 'enum') && !f.hidden;
   const blocks = (layout.length ? layout : defaultLayout(fields)).map((b) => {
     const named = b.fields.map((k) => byKey.get(k)).filter((f): f is StateField => !!f);
     const list = named.length ? named : fields.filter((f) => fits(b.type, f) && !used.has(f.key));
@@ -192,22 +195,27 @@ export function fieldsSchema(): object {
     properties: {
       key: { type: 'string' },
       label: { type: 'string' },
+      section: { type: 'string', description: '這個欄位屬於狀態定義裡哪一個分段標題（例：「# 生理數值」→ 生理數值）；定義沒有分段就填空字串' },
       hidden: { type: 'boolean' },
       type: { enum: [...FIELD_TYPES] },
       ...Object.fromEntries(NUM_PARAMS.map((k) => [k, { type: 'number' }])),
       options: { type: 'array', items: { type: 'string' } },
       initial: { type: 'string' },
-      unit: { type: 'string' },
-      levelLabel: { type: 'string' },
-      tiers: { type: 'array', items: { type: 'object', properties: { min: { type: 'number' }, label: { type: 'string' } }, required: ['min', 'label'], additionalProperties: false } },
+      unit: { type: 'string', description: 'number 的單位（例：bpm、次）；沒有就空字串' },
+      levelLabel: { type: 'string', description: 'zones 每個項目的等級叫什麼（例：開發度、熟練度），顯示成「開發度 12」；這是等級的名稱，不是單位；其他類型填空字串' },
+      tiers: {
+        type: 'array',
+        description: 'number 的區間標籤：數值 ≥ min 就顯示 label（例：0 初識、100 熟人、500 戀人）；定義沒寫就空陣列',
+        items: { type: 'object', properties: { min: { type: 'number' }, label: { type: 'string' } }, required: ['min', 'label'], additionalProperties: false },
+      },
     },
-    required: ['key', 'label', 'hidden', 'type', ...NUM_PARAMS, 'options', 'initial', 'unit', 'levelLabel', 'tiers'],
+    required: ['key', 'label', 'section', 'hidden', 'type', ...NUM_PARAMS, 'options', 'initial', 'unit', 'levelLabel', 'tiers'],
     additionalProperties: false,
   };
   return { type: 'object', properties: { fields: { type: 'array', items: item } }, required: ['fields'], additionalProperties: false };
 }
 
-type RawField = { key: string; label: string; hidden: boolean; type: string; options: string[]; initial: string; unit?: string; levelLabel?: string; tiers?: { min: number; label: string }[] } & Record<(typeof NUM_PARAMS)[number], number>;
+type RawField = { key: string; label: string; section?: string; hidden: boolean; type: string; options: string[]; initial: string; unit?: string; levelLabel?: string; tiers?: { min: number; label: string }[] } & Record<(typeof NUM_PARAMS)[number], number>;
 
 /** 扁平的模型輸出 → 欄位表（只取各型別要的參數；清單型的初始值一律空） */
 export function fieldsFromRaw(raw: { fields: RawField[] }): SecretFormat {
@@ -239,13 +247,33 @@ export function fieldsFromRaw(raw: { fields: RawField[] }): SecretFormat {
   return format;
 }
 
-export async function fieldsFromDefinitions(o: { endpoint: LlmEndpoint; model: string; definitions: string; system: string; fetchFn?: typeof fetch }): Promise<SecretFormat> {
+/**
+ * 模型標的分段 → 面板版面：每個分段一個 section 區塊（照第一次出現的順序），心裡話這種 hidden 欄位不放進分段（照預設放在遮住的區塊）；
+ * 沒標分段的欄位交給預設版面的同類型區塊。一個分段都沒有就回空版面（＝照類型自動分配）
+ */
+export function layoutFromSections(raw: { fields: RawField[] }, format: SecretFormat): PanelBlock[] {
+  const out: PanelBlock[] = [];
+  const keys = new Set(format.fields.map((f) => f.key));
+  const hidden = new Set(format.fields.filter((f) => f.hidden).map((f) => f.key));
+  for (const f of raw.fields) {
+    const title = String(f.section ?? '').replace(/^#+\s*/, '').trim();
+    if (!title || !keys.has(f.key) || hidden.has(f.key)) continue;
+    const b = out.find((x) => x.title === title);
+    if (b) b.fields.push(f.key);
+    else out.push({ type: 'section', title, fields: [f.key] });
+  }
+  if (!out.length) return [];
+  const placed = new Set(out.flatMap((b) => b.fields));
+  return [...out, ...defaultLayout(format.fields.filter((f) => !placed.has(f.key)))];
+}
+
+export async function fieldsFromDefinitions(o: { endpoint: LlmEndpoint; model: string; definitions: string; system: string; fetchFn?: typeof fetch }): Promise<{ format: SecretFormat; layout: PanelBlock[] }> {
   const raw = await streamChatRetry(
     o.endpoint,
     {
       model: o.model,
       temperature: 0.2,
-      maxTokens: 1500,
+      maxTokens: 6144,
       schema: fieldsSchema(),
       onDelta: () => {},
       messages: [
@@ -255,5 +283,7 @@ export async function fieldsFromDefinitions(o: { endpoint: LlmEndpoint; model: s
     },
     o.fetchFn,
   );
-  return fieldsFromRaw(JSON.parse(raw) as { fields: RawField[] });
+  const parsed = parseModelJson<{ fields: RawField[] }>(raw, '欄位表');
+  const format = fieldsFromRaw(parsed);
+  return { format, layout: layoutFromSections(parsed, format) };
 }

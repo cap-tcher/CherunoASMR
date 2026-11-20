@@ -13,7 +13,7 @@ import { registerVoice } from '../tts.ts';
 export type BookTab = 'user' | 'char' | 'scene' | 'glossary' | 'memory' | 'history' | 'world';
 
 const TABS: { k: BookTab; label: string; title: string; desc: string; opt: boolean }[] = [
-  { k: 'user', label: '主角', title: '主角', desc: '她怎麼叫你、字幕怎麼顯示你', opt: false },
+  { k: 'user', label: '主角', title: '主角', desc: '你的名字、字幕怎麼顯示你、外觀與關於你', opt: false },
   { k: 'char', label: '角色', title: '角色', desc: '每個角色＝角色卡＋鎖定的聲音；可匯出 SillyTavern 角色卡（CCv3）', opt: false },
   { k: 'scene', label: '情境', title: '情境', desc: '音床、空間與常用音效；停用時由 LLM 從音效庫自由挑', opt: true },
   { k: 'glossary', label: '圖鑑', title: '名詞圖鑑', desc: '常駐的每段都帶；其餘在最近 3 則或你這次說的話裡出現表記、讀み、譯名或同義詞才帶，並一起帶一層關聯條目', opt: true },
@@ -24,7 +24,7 @@ const TABS: { k: BookTab; label: string; title: string; desc: string; opt: boole
 
 // 角色卡欄位依用途分組，展開後由上往下排（[[SCR-03_設定頁版面]]）
 const CARD_GROUPS: { title: string; fields: [CardTextField, string, 'line' | 'text'][] }[] = [
-  { title: '基本', fields: [['name', '名字', 'line'], ['reading', '讀み', 'line'], ['subName', '字幕名', 'line'], ['ageSex', '年齡與性別', 'line'], ['relation', '與你的關係', 'line']] },
+  { title: '基本', fields: [['name', '名字', 'line'], ['reading', '讀み', 'line'], ['subName', '字幕名', 'line'], ['ageSex', '年齡與性別', 'line'], ['relation', '與你的關係', 'line'], ['callName', '她怎麼叫你', 'line']] },
   { title: '外觀與背景', fields: [['appearance', '外觀', 'text'], ['bio', '背景', 'text']] },
   { title: '個性與說話', fields: [['personality', '性格', 'text'], ['behavior', '說話方式', 'text'], ['catchphrase', '口頭禪', 'text']] },
 ];
@@ -204,14 +204,13 @@ export function BookPage(props: {
 
         {tab === 'user' && (
           <>
-            <Sec id="user-name" title="稱呼" desc="她怎麼叫你、字幕怎麼顯示你。">
+            <Sec id="user-name" title="名字" desc="你的名字與字幕怎麼顯示你。她怎麼叫你在每張角色卡裡設（每個角色叫法不同）。">
               <Field label="你的名字">
                 <input lang="ja" className="input big" value={data.protagonist.name} onChange={(e) => upd('protagonist', { ...data.protagonist, name: e.target.value })} />
               </Field>
               {(
                 [
                   ['reading', '讀み', '名字的平假名讀音（TTS 照這個念）'],
-                  ['callName', '她怎麼叫你', '例：テツくん'],
                   ['subName', '字幕名', '字幕裡顯示的名字'],
                 ] as const
               ).map(([k, label, hint]) => (

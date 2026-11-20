@@ -36,12 +36,12 @@ export function CardRegen(props: { data: AppData; c: Character; onMerged: (field
         fetchFn: traced('角色卡'),
         model: s.model,
         templates: data.templates.character,
-        request: { direction, tags, imageDataUrl, current, secretTemplate: data.secretTemplate },
+        request: { direction, tags, imageDataUrl, current, secretTemplate: data.secretTemplate, listener: data.protagonist.reading ? `${data.protagonist.name}（${data.protagonist.reading}）` : data.protagonist.name },
       });
       props.onMerged(merged);
       props.toast(`已重新生成空白欄位（保留你填的 ${kept} 欄）`);
     } catch (e) {
-      setErr(`生成失敗：${e instanceof Error ? e.message : String(e)}${c.image ? '。如果模型不支援看圖，換一個會看圖的模型。' : ''}`);
+      setErr(`生成失敗：${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
     }
