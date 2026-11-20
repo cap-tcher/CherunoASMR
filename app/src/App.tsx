@@ -123,17 +123,24 @@ export function App(props: {
           data={data}
           editing={editing}
           toast={flash}
-          onSave={(c0) => {
+          onSave={(c0, then) => {
             // 角色圖存進共用庫，存檔裡只寫 key
             void (c0.image ? imageToKey(c0.image) : Promise.resolve(null)).then(
               (image) => {
                 const c = { ...c0, image };
-                update((d) => ({ ...d, characters: d.characters.some((x) => x.id === c.id) ? d.characters.map((x) => (x.id === c.id ? c : x)) : [...d.characters, c], activeId: c.id }));
+                // 沒有聲音的角色不設成聆聽中的角色（聆聽要聲音）；存完到萬物之書的角色分頁，之後在那裡設計聲音
+                const go = then === 'listen' && c.voice ? 'listen' : 'book';
+                update((d) => ({ ...d, characters: d.characters.some((x) => x.id === c.id) ? d.characters.map((x) => (x.id === c.id ? c : x)) : [...d.characters, c], ...(go === 'listen' ? { activeId: c.id } : {}) }));
                 setEditing(null);
                 setCreateKey((k) => k + 1);
-                setSessionKey((k) => k + 1);
-                setPage('listen');
-                flash(`已建立角色：${c.subName || c.name}`);
+                if (go === 'listen') {
+                  setSessionKey((k) => k + 1);
+                  setPage('listen');
+                } else {
+                  setBookTab('char');
+                  setPage('book');
+                }
+                flash(go === 'listen' ? `已建立角色：${c.subName || c.name}` : `已儲存角色：${c.subName || c.name}${c.voice ? '' : '（聲音還沒設計：在角色分頁按「設計聲音」）'}`);
               },
               (e: unknown) => flash(`角色圖存不進共用庫，角色沒有存：${e instanceof Error ? e.message : String(e)}`, true),
             );

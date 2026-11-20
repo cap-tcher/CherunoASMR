@@ -26,14 +26,21 @@ export type Snapshot = Record<string, FieldValue>;
  * zones／kv 照 ADV3.0 的 `<zone>`／`<stat>`（L2648–L2700）：LLM 只列這段有變化或新出現的項目，沒列出的維持原樣（不會被模型漏列刪掉）；刪除只能在面板手動做。
  */
 export type StateField = { key: string; label: string; hidden?: boolean } & (
-  | { type: 'number'; min: number; max: number; maxDelta: number; initial: number }
+  // unit：顯示用單位（bpm）；tiers：區間標籤（下限＋標籤，例 0 初識／100 熟人），顯示成「158(+8) 熟人」（使用者 2026-11-20）
+  | { type: 'number'; min: number; max: number; maxDelta: number; initial: number; unit?: string; tiers?: NumberTier[] }
   | { type: 'text'; maxLength: number; initial: string }
   | { type: 'enum'; options: string[]; initial: string }
   | { type: 'tags'; maxItems: number; maxLength: number; initial: string[] }
   // names：允許的名稱清單；有設就只能用清單裡的名稱（schema 用 enum 鎖住），沒設＝自由命名（2026-11-19：小模型會自己編「部位3」「left」）
-  | { type: 'zones'; levelMin: number; levelMax: number; maxDelta: number; nameMaxLength: number; stateMaxLength: number; names?: string[]; initial: Zone[] }
+  // levelLabel：等級叫什麼（性感帶地圖用「開發度」，預設 Lv.）
+  | { type: 'zones'; levelMin: number; levelMax: number; maxDelta: number; nameMaxLength: number; stateMaxLength: number; names?: string[]; levelLabel?: string; initial: Zone[] }
   | { type: 'kv'; nameMaxLength: number; valueMaxLength: number; names?: string[]; initial: KvItem[] }
 );
+
+export interface NumberTier {
+  min: number;
+  label: string;
+}
 
 export interface SecretFormat {
   fields: StateField[];
@@ -74,6 +81,8 @@ export function validateFormat(format: SecretFormat): void {
     if (f.type === 'number') {
       if (!(f.min <= f.initial && f.initial <= f.max)) throw new SecretFormatError(`${f.key} 的初始值不在 [min, max]`);
       if (!(f.maxDelta > 0)) throw new SecretFormatError(`${f.key} 的每段變化量上限要 > 0`);
+      if (f.tiers?.some((t) => !Number.isFinite(t.min) || !t.label.trim())) throw new SecretFormatError(`${f.key} 的區間標籤要有下限數字與名稱`);
+      if (f.tiers && new Set(f.tiers.map((t) => t.min)).size !== f.tiers.length) throw new SecretFormatError(`${f.key} 的區間標籤下限重複`);
     }
     if (f.type === 'enum' && !f.options.includes(f.initial)) throw new SecretFormatError(`${f.key} 的初始值不在選項內`);
     if (f.type === 'tags' && f.initial.length > f.maxItems) throw new SecretFormatError(`${f.key} 的初始 tag 超過上限`);
@@ -388,6 +397,13 @@ export class StateTimeline {
   /** 目前（最後一段之後）的快照，給下一段 prompt 用。 */
   current(): Record<string, Snapshot> {
     return this.segs.length ? this.segs[this.segs.length - 1]!.snapshots : this.base();
+  }
+
+  /** 給 prompt 的「現在」與「再前一段」：now＝這段開始前（沒給 segmentId＝最後一段之後），prev＝now 的前一段（第一段時 null）。算 ±變化、舊 → 新用 */
+  pair(segmentId?: string): { now: Record<string, Snapshot>; prev: Record<string, Snapshot> | null } {
+    const i = segmentId ? this.indexOf(segmentId) : this.segs.length;
+    const at = (k: number) => (k <= 0 ? this.base() : this.segs[k - 1]!.snapshots);
+    return { now: at(i), prev: i >= 1 ? at(i - 1) : null };
   }
 
   /** 某段開始前的快照（重生那段時給 prompt 用）。 */

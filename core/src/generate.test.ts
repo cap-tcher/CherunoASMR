@@ -11,7 +11,7 @@ const card: CharacterCard = { id: 'mio', name: '澪', reading: 'みお', subName
 function fakeLlm(seenStates: string[]): typeof fetch {
   return (async (_u: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as { messages: { content: string }[] };
-    seenStates.push(/## 目前的秘密狀態\n(.*)/.exec(body.messages[0]!.content)![1]!);
+    seenStates.push(/好感度: [^\n]*/.exec(body.messages[0]!.content)![0]);
     const out = {
       lines: [1, 2, 3].map((i) => ({ ja: `台詞${i}`, zh: `譯文${i}`, voice: 'normal', pos: { side: 'center', distance_cm: 30 }, se: [] })),
       state: { mio: { affection: 100 } },
@@ -79,7 +79,7 @@ describe('generateSegment', () => {
       const r = await generateSegment(opts(t, 's2', f, true));
       expect(r.snapshots.mio!.affection).toBe(20);
     }
-    expect(seen.slice(2).every((s) => s === '{"mio":{"affection":15}}')).toBe(true);
+    expect(seen.slice(2).every((s) => s === '好感度: 15(+5)')).toBe(true); // 重生 s2：s2 開始前是 15，再前一段（初始）是 10
     expect(t.length).toBe(2);
   });
 });

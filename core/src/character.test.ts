@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CharacterFormatError, buildCharacterMessages, characterSchema, generateCharacter } from './character.ts';
+import { CharacterFormatError, buildCharacterMessages, buildVoiceInstruct, characterSchema, generateCharacter } from './character.ts';
 import { CARD_TEXT_FIELDS } from './prompt.ts';
 import { DEFAULT_TEMPLATES } from './templates.ts';
 
@@ -57,5 +57,18 @@ describe('generateCharacter', () => {
   it('缺欄位時丟 CharacterFormatError，不補值', async () => {
     const { secret: _s, ...partial } = full;
     await expect(generateCharacter({ endpoint: ep, model: 'm', request: { direction: 'x', tags: [], imageDataUrl: null, current: {}, secretTemplate: '' }, templates: T, fetchFn: fakeFetch(JSON.stringify(partial), {}) })).rejects.toThrow(CharacterFormatError);
+  });
+});
+
+describe('buildVoiceInstruct', () => {
+  it('聲音描述＋名字、年齡與性別、性格、說話方式；空的略過', () => {
+    const r = buildVoiceInstruct('柔らかい声', { name: '澪', ageSex: '24 歲女性', personality: '溫柔', behavior: '說話慢、尾音上揚', catchphrase: 'ね' });
+    expect(r.split(String.fromCharCode(10))).toEqual(['柔らかい声', '角色：澪', '年齡與性別：24 歲女性', '性格：溫柔', '說話方式：說話慢、尾音上揚；口頭禪「ね」']);
+    expect(buildVoiceInstruct('柔らかい声', { name: '', ageSex: '', personality: '', behavior: '', catchphrase: '' })).toBe('柔らかい声');
+  });
+  it('每項截長度', () => {
+    const r = buildVoiceInstruct('v', { name: 'n', ageSex: '', personality: 'あ'.repeat(500), behavior: '', catchphrase: '' }, 50);
+    expect(r).toContain('性格：' + 'あ'.repeat(50));
+    expect(r).not.toContain('あ'.repeat(51));
   });
 });

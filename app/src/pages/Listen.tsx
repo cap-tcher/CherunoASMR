@@ -464,6 +464,11 @@ export function ListenPage({ data, goCreate, goSystem }: { data: AppData; goCrea
                   <button type="button" className="btn" onClick={s.retry} disabled={s.generating}>
                     重試
                   </button>
+                  {s.ragFailed && (
+                    <button type="button" className="btn" onClick={s.continueWithoutRag} disabled={s.generating}>
+                      這段不帶參考範例繼續
+                    </button>
+                  )}
                   <button type="button" className="btn" onClick={goSystem}>
                     到系統核心檢查
                   </button>

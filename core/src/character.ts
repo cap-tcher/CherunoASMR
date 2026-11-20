@@ -63,3 +63,13 @@ export async function generateCharacter(o: { endpoint: LlmEndpoint; model: strin
   if (missing.length) throw new CharacterFormatError(`角色卡缺欄位：${missing.join('、')}`);
   return mergeKeepFilled(o.request.current, rec as Record<CardTextField, string>);
 }
+
+/**
+ * 送給 Qwen 聲音設計的 instruct：聲音描述＋角色基本欄位（使用者 2026-11-20：「餵的提示詞要包含角色的其他基本必要欄位 例如名字 年齡與性別 性格 說話方式」）。
+ * 空的欄位略過；每項截在 maxEach 字，免得一長段背景把聲音描述淹掉。鎖定 Qwen 聲音時存的也是這份（每句用同一份＋seed 才是同一個聲音）
+ */
+export function buildVoiceInstruct(voiceDesc: string, c: { name: string; ageSex: string; personality: string; behavior: string; catchphrase: string }, maxEach = 120): string {
+  const cut = (x: string) => x.trim().replace(/\s+/g, ' ').slice(0, maxEach);
+  const speech = [cut(c.behavior), c.catchphrase.trim() ? `口頭禪「${cut(c.catchphrase)}」` : ''].filter(Boolean).join('；');
+  return [cut(voiceDesc), c.name.trim() && `角色：${cut(c.name)}`, c.ageSex.trim() && `年齡與性別：${cut(c.ageSex)}`, c.personality.trim() && `性格：${cut(c.personality)}`, speech && `說話方式：${speech}`].filter(Boolean).join('\n');
+}

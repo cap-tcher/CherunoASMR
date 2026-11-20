@@ -1,4 +1,4 @@
-import { DEFAULT_TEMPLATES, TEMPLATE_UPGRADES, validateManual, type Chapter, type CharacterCard, type GlossaryEntry, type PanelBlock, type PromptTemplates, type Protagonist, type SecretFormat, type Snapshot } from '@cheruno/core';
+import { type StateField, DEFAULT_TEMPLATES, TEMPLATE_UPGRADES, validateManual, type Chapter, type CharacterCard, type GlossaryEntry, type PanelBlock, type PromptTemplates, type Protagonist, type SecretFormat, type Snapshot } from '@cheruno/core';
 import { useEffect, useRef, useState } from 'react';
 
 export type Engine = 'irodori' | 'zonos' | 'qwen-comfy';
@@ -27,7 +27,22 @@ export interface Settings {
   linesMax: number;
   /** Irodori 取樣步數（GTX 1070 實測短句 2～4 秒：16 步約 3.8 秒、24 步約 5 秒、40 步約 7 秒；越少越快、音質越粗） */
   irodoriSteps: number;
+  /** RAG 參考範例（[[PLAN_RAG]]）：本機 LM Studio／其他端點各一個開關；collection 空＝不檢索 */
+  rag: RagSettings;
 }
+
+export interface RagSettings {
+  local: boolean; // LLM 是本機 LM Studio 時帶參考範例（預設開）
+  cloud: boolean; // 其他端點（Gemini、OpenAI、Claude…）時帶（預設關：多吃 token、各家內容政策不同）
+  collection: string;
+  k: number; // 檢索幾個片段
+  maxChars: number; // 參考範例總字數上限
+}
+
+/** 性感帶地圖（ADV3.0 L639–L700 的 Zone Map）：部位不固定、模型可新增；開發度 0～100、每段最多 ±10 */
+export const ZONE_MAP_FIELD = { key: 'zones', label: '性感帶地圖', type: 'zones', levelMin: 0, levelMax: 100, maxDelta: 10, nameMaxLength: 20, stateMaxLength: 40, levelLabel: '開發度', initial: [] } as const satisfies StateField;
+
+export const DEFAULT_RAG: RagSettings = { local: true, cloud: false, collection: '', k: 3, maxChars: 1500 };
 
 export interface LockedVoice {
   engine: Engine;
@@ -134,7 +149,7 @@ const DEFAULT_SYSTEM =
 
 export const DEFAULT_DATA: AppData = {
   v: 2,
-  settings: { llmBase: 'http://localhost:1234/v1', apiKey: '', model: '', temperature: 0.8, maxTokens: 1800, audioBase: 'http://127.0.0.1:8790', engine: 'zonos', sleepMinutes: 45, contextNormal: 70, contextIntimacy: 70, irodoriSteps: 16, noThinking: true, stateSeparately: true, linesMin: 3, linesMax: 8 },
+  settings: { llmBase: 'http://localhost:1234/v1', apiKey: '', model: '', temperature: 0.8, maxTokens: 1800, audioBase: 'http://127.0.0.1:8790', engine: 'zonos', sleepMinutes: 45, contextNormal: 70, contextIntimacy: 70, irodoriSteps: 16, rag: DEFAULT_RAG, noThinking: true, stateSeparately: true, linesMin: 3, linesMax: 8 },
   protagonist: { name: 'テツ', reading: 'てつ', callName: 'テツくん', subName: '阿哲', gender: '男性', appearance: '', bio: '大學生，最近在趕期末報告；怕打雷；養了一隻橘貓みかん。' },
   characters: [],
   activeId: null,
@@ -171,6 +186,7 @@ export const DEFAULT_DATA: AppData = {
       { key: 'secretProgress', label: '秘密進度', type: 'enum', options: ['未透露', '暗示中', '已透露'], initial: '未透露' },
       { key: 'inner', label: '心裡話', type: 'text', maxLength: 40, initial: '', hidden: true },
       { key: 'tags', label: '標籤', type: 'tags', maxItems: 3, maxLength: 8, initial: [] },
+      ZONE_MAP_FIELD,
     ],
   },
   statDefs: '好感度：被依賴、被稱讚 +3～+8；被冷落 −5。\n心跳：距離 ≤15cm 時至少「少し速い」。\n秘密進度：好感度 ≥80 才可能進到「暗示中」；「已透露」需要聽者主動問起。',
@@ -212,6 +228,7 @@ export function migrate(d: AppData): AppData {
   d.settings.contextNormal ??= 70;
   d.settings.contextIntimacy ??= 70;
   d.settings.irodoriSteps ??= 16;
+  d.settings.rag = { ...DEFAULT_RAG, ...(d.settings.rag ?? {}) };
   d.settings.noThinking ??= true;
   // 使用者指示（2026-11-19）：狀態要等台本生成完、以台本為輸入再生成，才不會跟台本脫鉤 → 預設開
   d.settings.stateSeparately ??= true;

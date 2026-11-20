@@ -9,6 +9,8 @@ POST /tts     {engine, text, voice, speaker} → audio/wav
 
 from __future__ import annotations
 
+import importlib.util
+
 import base64
 import binascii
 import os
@@ -66,6 +68,11 @@ def create_app(engines: dict[str, HttpEngine] | None = None, data_dir: Path | No
     app.include_router(datadir_router(dd, pick_dir) if pick_dir is not None else datadir_router(dd))
     app.include_router(store_router(lambda: dd.path))
     app.include_router(services_router(lambda: dd.path, (lambda: runner) if runner is not None else default_runner))
+    # RAG 是選用元件：有裝 cheruno_rag（開發版以 path 依賴引用 rag/）才開 /rag；公開版目前不附，app 看到 /rag 不存在就不顯示 RAG 設定
+    if importlib.util.find_spec("cheruno_rag") is not None:
+        from .rag_routes import rag_router
+
+        app.include_router(rag_router())
 
     @app.get("/health")
     def health() -> dict:

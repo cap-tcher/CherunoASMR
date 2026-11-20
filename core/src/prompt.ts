@@ -1,5 +1,7 @@
 // 每段 prompt 的組裝：固定前綴（系統提示詞＋角色卡＋主角＋情境＋秘密格式）＋選用追加＋當下快照＋本段指令。
 // 秘密與秘密狀態只放 system；user 訊息只帶本段指令與使用者輸入。
+import type { PanelBlock } from './rules.ts';
+import { formatStateText } from './stateText.ts';
 import type { SecretFormat, Snapshot } from './state.ts';
 import { fill, type PromptTemplates } from './templates.ts';
 
@@ -83,6 +85,10 @@ export interface PromptInput {
   tone: string; // 語氣 FAB：只影響之後的段落
   secretFormat: SecretFormat;
   state: Record<string, Snapshot>; // 當下快照（上一段結束時）
+  /** 再前一段的快照：目前狀態寫成「值(±變化)」「舊 → 新」用；第一段為 null */
+  statePrev?: Record<string, Snapshot> | null;
+  /** 面板版面：目前狀態照它分段（# 標題）；沒給用預設分段 */
+  layout?: PanelBlock[];
   mode: Mode;
   userInput: string; // 互動模式的輸入
   intimacy: boolean; // 親密模式（ADV3.0 F-18）：用親密模式系統提示詞＋親密劇本，帶秘密與狀態；一般模式都不帶、不輸出 state
@@ -95,6 +101,14 @@ export interface PromptInput {
   isFirstSegment: boolean;
   withEn: boolean;
   seIds: readonly string[];
+  /** RAG 檢索到的對話片段（[[PLAN_RAG]]）；沒有或空陣列＝提示詞和沒有 RAG 時一字不差 */
+  references?: RagReference[];
+}
+
+export interface RagReference {
+  id: string;
+  header: string;
+  text: string;
 }
 
 export type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
@@ -170,9 +184,10 @@ export function buildMessages(p: PromptInput, t: SegmentTemplates): ChatMessage[
     im && !c.secret.trim() ? section(t.secSecretGen, fill(t.secretGenBody, { secretTemplate: p.secretTemplate.trim() })) : '',
     im ? section(t.secStateFormat, p.secretFormat.fields.map((f) => describeField(f, t)).join('\n')) : '',
     im ? section(t.secStatDefs, p.statDefs) : '',
-    im ? section(t.secStateNow, JSON.stringify(p.state)) : '',
+    im ? section(t.secStateNow, p.state[c.id] ? formatStateText(p.secretFormat, p.layout ?? [], p.state[c.id]!, p.statePrev?.[c.id] ?? null) : '') : '',
     im ? section(t.secIntimacyScript, p.intimacyScript) : '',
     p.clock ? section(t.secClock, fill(t.clockBody, { time: p.clock })) : '',
+    section(t.secReferences, (p.references ?? []).map((r) => fill(t.referenceItem, { header: r.header, text: r.text }).trim()).join('\n\n')),
     section(t.secTone, p.tone),
     section(t.secOutput, output),
   ]

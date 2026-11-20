@@ -1,6 +1,6 @@
 // 範例資料只用成年角色、非性內容（見 Obsidian/UI/ADV3.0功能對照.md）
 import { describe, expect, it } from 'vitest';
-import { RulesImportError, checkInclude, exportRules, fieldsFromDefinitions, importRules, includeMatch, resolveLayout, type RulesConfig } from './rules.ts';
+import { RulesImportError, checkInclude, exportRules, fieldsFromDefinitions, importRules, includeMatch, resolveLayout, type RulesConfig, fieldsSchema, fieldsFromRaw, MAX_FIELDS } from './rules.ts';
 import type { StateField } from './state.ts';
 
 const fields: StateField[] = [
@@ -86,10 +86,48 @@ describe('fieldsFromDefinitions', () => {
     let body = '';
     const fetchFn = (async (_u: string, init: RequestInit) => {
       body = String(init.body);
-      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify({ fields }) } }] })}\n\ndata: [DONE]\n\n`);
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify({ fields: fields.map(flat) }) } }] })}\n\ndata: [DONE]\n\n`);
     }) as unknown as typeof fetch;
     const r = await fieldsFromDefinitions({ endpoint: { baseUrl: 'http://x/v1', apiKey: '' }, model: 'm', definitions: '好感度 0～100', system: 'sys', fetchFn });
     expect(r.fields).toHaveLength(5);
     expect(JSON.parse(body).response_format.type).toBe('json_schema');
+  });
+});
+
+/** 欄位表 → 模型會回的扁平格式（和型別無關的參數填 0／空） */
+function flat(f: StateField) {
+  const z = { min: 0, max: 0, maxDelta: 0, maxLength: 0, maxItems: 0, levelMin: 0, levelMax: 0, nameMaxLength: 0, stateMaxLength: 0, valueMaxLength: 0, options: [] as string[], initial: '', unit: '', levelLabel: '', tiers: [] as { min: number; label: string }[] };
+  const g = f as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...z, key: f.key, label: f.label, hidden: !!f.hidden, type: f.type };
+  for (const k of Object.keys(z)) if (k !== 'initial' && g[k] !== undefined) out[k] = g[k];
+  out.initial = typeof g.initial === 'string' || typeof g.initial === 'number' ? String(g.initial) : '';
+  return out;
+}
+
+describe('fieldsSchema（扁平，Gemini 收得下）', () => {
+  const schema = fieldsSchema() as { properties: { fields: Record<string, unknown> & { items: { properties: Record<string, Record<string, unknown>> } } } };
+  it('沒有 anyOf、陣列沒有長度上限', () => {
+    expect(JSON.stringify(schema)).not.toContain('anyOf');
+    const arr = schema.properties.fields;
+    expect(arr.maxItems).toBeUndefined();
+    expect(arr.minItems).toBeUndefined();
+    expect(arr.items.properties.options!.maxItems).toBeUndefined(); // 欄位參數裡的 maxItems 是名稱，不是陣列限制
+  });
+  it('六種型別都轉得回合法欄位表；清單型初始值為空', () => {
+    const all: StateField[] = [
+      { key: 'a', label: '好感', type: 'number', min: 0, max: 100, maxDelta: 5, initial: 10 },
+      { key: 'b', label: '心跳', type: 'enum', options: ['普通', '速い'], initial: '速い' },
+      { key: 'c', label: '心情', type: 'text', maxLength: 20, initial: '平靜' },
+      { key: 'd', label: '標籤', type: 'tags', maxItems: 3, maxLength: 8, initial: [] },
+      { key: 'e', label: '性感帶', type: 'zones', levelMin: 0, levelMax: 100, maxDelta: 10, nameMaxLength: 20, stateMaxLength: 40, initial: [] },
+      { key: 'f', label: '筆記', type: 'kv', nameMaxLength: 10, valueMaxLength: 30, initial: [] },
+    ];
+    expect(fieldsFromRaw({ fields: all.map(flat) as never }).fields).toEqual(all);
+  });
+  it('超過上限、enum 選項太少、不認得的型別都報錯', () => {
+    const n = (i: number) => flat({ key: `k${i}`, label: `L${i}`, type: 'number', min: 0, max: 10, maxDelta: 1, initial: 0 });
+    expect(() => fieldsFromRaw({ fields: Array.from({ length: MAX_FIELDS + 1 }, (_, i) => n(i)) as never })).toThrow(/上限/);
+    expect(() => fieldsFromRaw({ fields: [flat({ key: 'x', label: 'x', type: 'enum', options: ['只有一個'], initial: '只有一個' })] as never })).toThrow();
+    expect(() => fieldsFromRaw({ fields: [{ ...n(0), type: 'weird' }] as never })).toThrow(/不認得/);
   });
 });

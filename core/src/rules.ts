@@ -1,7 +1,7 @@
 // 秘密規則設定檔：使用者可自訂、可匯入匯出，不寫死在程式碼（對照 ADV3.0 handleImportConfig／handleExportConfig）。
 // 一份設定檔＝系統核心規則＋狀態定義（文字，每段帶）＋秘密生成格式（建立角色時寫秘密的模板）＋面板版面＋欄位表（schema 與上限）。
 import { streamChatRetry, type LlmEndpoint } from './llm.ts';
-import { validateFormat, type SecretFormat, type StateField } from './state.ts';
+import { SecretFormatError, validateFormat, type SecretFormat, type StateField } from './state.ts';
 
 /**
  * 面板區塊（對應 ADV3.0 intimacyUIConfig.layout）：
@@ -176,31 +176,67 @@ export function resolveLayout(layout: PanelBlock[], fields: StateField[]): { typ
   return blocks.filter((b) => b.fields.length);
 }
 
-/** 「由狀態定義產生欄位」：LLM 讀文字定義，回傳欄位表（json_schema 約束）。使用者在上限表確認後才套用。 */
+/**
+ * 「由狀態定義產生欄位」：LLM 讀文字定義，回傳欄位表（json_schema 約束）。使用者在上限表確認後才套用。
+ * schema 用單一扁平物件（type 用 enum、各型別的參數攤平、陣列不設長度上限）：六種型別各一個 anyOf 再乘上陣列長度上限，
+ * Gemini 會回 400「schema produces a constraint that has too many states」（使用者 2026-11-20 回報）。
+ * 和型別無關的參數模型填 0／空字串／空陣列，fieldsFromRaw 只取該型別要的，再交給 validateFormat 檢查
+ */
+const FIELD_TYPES = ['number', 'enum', 'text', 'tags', 'zones', 'kv'] as const;
+const NUM_PARAMS = ['min', 'max', 'maxDelta', 'maxLength', 'maxItems', 'levelMin', 'levelMax', 'nameMaxLength', 'stateMaxLength', 'valueMaxLength'] as const;
+export const MAX_FIELDS = 16;
+
 export function fieldsSchema(): object {
-  const base = { key: { type: 'string', minLength: 1, maxLength: 40 }, label: { type: 'string', minLength: 1, maxLength: 20 }, hidden: { type: 'boolean' } };
-  return {
+  const item = {
     type: 'object',
     properties: {
-      fields: {
-        type: 'array',
-        minItems: 1,
-        maxItems: 16,
-        items: {
-          anyOf: [
-            { type: 'object', properties: { ...base, type: { const: 'number' }, min: { type: 'number' }, max: { type: 'number' }, maxDelta: { type: 'number' }, initial: { type: 'number' } }, required: ['key', 'label', 'hidden', 'type', 'min', 'max', 'maxDelta', 'initial'], additionalProperties: false },
-            { type: 'object', properties: { ...base, type: { const: 'enum' }, options: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 12 }, initial: { type: 'string' } }, required: ['key', 'label', 'hidden', 'type', 'options', 'initial'], additionalProperties: false },
-            { type: 'object', properties: { ...base, type: { const: 'text' }, maxLength: { type: 'integer', minimum: 1, maximum: 200 }, initial: { type: 'string' } }, required: ['key', 'label', 'hidden', 'type', 'maxLength', 'initial'], additionalProperties: false },
-            { type: 'object', properties: { ...base, type: { const: 'tags' }, maxItems: { type: 'integer', minimum: 1, maximum: 20 }, maxLength: { type: 'integer', minimum: 1, maximum: 40 }, initial: { type: 'array', items: { type: 'string' }, maxItems: 0 } }, required: ['key', 'label', 'hidden', 'type', 'maxItems', 'maxLength', 'initial'], additionalProperties: false },
-            { type: 'object', properties: { ...base, type: { const: 'zones' }, levelMin: { type: 'integer' }, levelMax: { type: 'integer' }, maxDelta: { type: 'integer', minimum: 1 }, nameMaxLength: { type: 'integer', minimum: 1, maximum: 40 }, stateMaxLength: { type: 'integer', minimum: 1, maximum: 100 }, initial: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, level: { type: 'integer' }, state: { type: 'string' } }, required: ['name', 'level', 'state'], additionalProperties: false } } }, required: ['key', 'label', 'hidden', 'type', 'levelMin', 'levelMax', 'maxDelta', 'nameMaxLength', 'stateMaxLength', 'initial'], additionalProperties: false },
-            { type: 'object', properties: { ...base, type: { const: 'kv' }, nameMaxLength: { type: 'integer', minimum: 1, maximum: 40 }, valueMaxLength: { type: 'integer', minimum: 1, maximum: 100 }, initial: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, value: { type: 'string' } }, required: ['name', 'value'], additionalProperties: false } } }, required: ['key', 'label', 'hidden', 'type', 'nameMaxLength', 'valueMaxLength', 'initial'], additionalProperties: false },
-          ],
-        },
-      },
+      key: { type: 'string' },
+      label: { type: 'string' },
+      hidden: { type: 'boolean' },
+      type: { enum: [...FIELD_TYPES] },
+      ...Object.fromEntries(NUM_PARAMS.map((k) => [k, { type: 'number' }])),
+      options: { type: 'array', items: { type: 'string' } },
+      initial: { type: 'string' },
+      unit: { type: 'string' },
+      levelLabel: { type: 'string' },
+      tiers: { type: 'array', items: { type: 'object', properties: { min: { type: 'number' }, label: { type: 'string' } }, required: ['min', 'label'], additionalProperties: false } },
     },
-    required: ['fields'],
+    required: ['key', 'label', 'hidden', 'type', ...NUM_PARAMS, 'options', 'initial', 'unit', 'levelLabel', 'tiers'],
     additionalProperties: false,
   };
+  return { type: 'object', properties: { fields: { type: 'array', items: item } }, required: ['fields'], additionalProperties: false };
+}
+
+type RawField = { key: string; label: string; hidden: boolean; type: string; options: string[]; initial: string; unit?: string; levelLabel?: string; tiers?: { min: number; label: string }[] } & Record<(typeof NUM_PARAMS)[number], number>;
+
+/** 扁平的模型輸出 → 欄位表（只取各型別要的參數；清單型的初始值一律空） */
+export function fieldsFromRaw(raw: { fields: RawField[] }): SecretFormat {
+  if (!Array.isArray(raw.fields) || !raw.fields.length) throw new SecretFormatError('模型沒有產生任何欄位');
+  if (raw.fields.length > MAX_FIELDS) throw new SecretFormatError(`模型產生了 ${raw.fields.length} 個欄位，上限 ${MAX_FIELDS}：把狀態定義寫精簡一點再產生`);
+  const int = (n: number) => Math.round(Number(n));
+  const fields = raw.fields.map((f): StateField => {
+    const base = { key: f.key, label: f.label, ...(f.hidden ? { hidden: true } : {}) };
+    switch (f.type) {
+      case 'number':
+        return { ...base, type: 'number', min: Number(f.min), max: Number(f.max), maxDelta: Number(f.maxDelta), initial: Number(f.initial) || Number(f.min), ...(f.unit?.trim() ? { unit: f.unit.trim() } : {}), ...(f.tiers?.length ? { tiers: f.tiers.map((t) => ({ min: Number(t.min), label: String(t.label).trim() })) } : {}) };
+      case 'enum':
+        if (!Array.isArray(f.options) || f.options.length < 2) throw new SecretFormatError(`${f.key}（${f.label}）是選項型，至少要 2 個選項`);
+        return { ...base, type: 'enum', options: f.options, initial: f.options.includes(f.initial) ? f.initial : (f.options[0] ?? '') };
+      case 'text':
+        return { ...base, type: 'text', maxLength: int(f.maxLength), initial: f.initial };
+      case 'tags':
+        return { ...base, type: 'tags', maxItems: int(f.maxItems), maxLength: int(f.maxLength), initial: [] };
+      case 'zones':
+        return { ...base, type: 'zones', levelMin: int(f.levelMin), levelMax: int(f.levelMax), maxDelta: int(f.maxDelta), nameMaxLength: int(f.nameMaxLength), stateMaxLength: int(f.stateMaxLength), ...(f.levelLabel?.trim() ? { levelLabel: f.levelLabel.trim() } : {}), initial: [] };
+      case 'kv':
+        return { ...base, type: 'kv', nameMaxLength: int(f.nameMaxLength), valueMaxLength: int(f.valueMaxLength), initial: [] };
+      default:
+        throw new SecretFormatError(`不認得的欄位型別：${f.type}`);
+    }
+  });
+  const format: SecretFormat = { fields };
+  validateFormat(format);
+  return format;
 }
 
 export async function fieldsFromDefinitions(o: { endpoint: LlmEndpoint; model: string; definitions: string; system: string; fetchFn?: typeof fetch }): Promise<SecretFormat> {
@@ -219,7 +255,5 @@ export async function fieldsFromDefinitions(o: { endpoint: LlmEndpoint; model: s
     },
     o.fetchFn,
   );
-  const parsed = JSON.parse(raw) as SecretFormat;
-  validateFormat(parsed);
-  return parsed;
+  return fieldsFromRaw(JSON.parse(raw) as { fields: RawField[] });
 }

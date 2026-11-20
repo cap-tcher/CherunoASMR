@@ -16,6 +16,9 @@ import {
   type SeEvent,
   type Snapshot,
   type TimelineData,
+  buildRagQuery,
+  fitReferences,
+  type RagReference,
 } from '@cheruno/core';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { endpointOf, type AppData, type Character } from './store.ts';
@@ -23,6 +26,7 @@ import { fetchAsset, putVoice, voiceKey, type VoiceParams } from './library.ts';
 import { traced } from './requestLog.ts';
 import { pauseSfx, playSe, resumeSfx, setSfxVolume } from './sfx.ts';
 import { synthesize } from './tts.ts';
+import { isLocalLms } from './services.ts';
 
 export type Status = 'queued' | 'synth' | 'ready' | 'playing' | 'done' | 'error';
 export interface LineItem {
@@ -109,6 +113,9 @@ export interface Session {
   segNumber: (id: string) => number;
   send: (text: string) => void;
   retry: () => void;
+  /** 參考範例（RAG）檢索失敗、停在錯誤列：可以重試，或這段不帶參考範例繼續（每次由使用者決定，[[TASKS_RAG]] Q-02） */
+  ragFailed: boolean;
+  continueWithoutRag: () => void;
   /** 停掉正在生成的這段；reason 會顯示在錯誤列（沒給就是「已停止生成」） */
   stop: (reason?: string) => void;
   togglePause: () => void;
@@ -214,6 +221,7 @@ export function SessionRoot(props: {
   const [msgs, setMsgs] = useState<Msg[]>(b0.msgs);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(b0.err);
+  const [ragFail, setRagFail] = useState<{ opts: { userText?: string; regenerateId?: string } } | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [paused, setPaused] = useState(b0.restored); // 重新整理後先暫停，不自己播也不自己續寫
   const [panel, setPanel] = useState<PanelState>(() => {
@@ -292,7 +300,23 @@ export function SessionRoot(props: {
     });
   }
 
-  async function generate(opts: { userText?: string; regenerateId?: string } = {}) {
+  type GenOpts = { userText?: string; regenerateId?: string; skipRag?: boolean };
+
+  /** 這次要不要帶參考範例、要的話去音訊服務檢索；失敗丟錯（由 generate 停下、讓使用者決定） */
+  async function retrieveReferences(opts: GenOpts): Promise<RagReference[]> {
+    const r = s.rag;
+    const on = r.collection && (isLocalLms(s.llmBase) ? r.local : r.cloud);
+    if (!on || opts.skipRag) return [];
+    const scene = data.optOn.scene ? (data.scenes.find((x) => x.id === data.activeSceneId) ?? null) : null;
+    const query = buildRagQuery({ userInput: opts.userText ?? '', scene: scene ? { name: scene.name, desc: scene.desc } : null, character: ch, tone: data.tone });
+    if (!query) return [];
+    const res = await traced('參考範例檢索')(`${s.audioBase.replace(/\/+$/, '')}/rag/search`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ collection: r.collection, query, k: r.k }) });
+    if (!res.ok) throw new Error(await res.json().then((j: { detail?: unknown }) => String(j.detail ?? res.statusText), () => `HTTP ${res.status}`));
+    const hits = ((await res.json()) as { hits: RagReference[] }).hits;
+    return fitReferences(hits.map((h) => ({ id: h.id, header: h.header, text: h.text })), r.maxChars);
+  }
+
+  async function generate(opts: GenOpts = {}) {
     if (loadErr) {
       setError(loadErr);
       return;
@@ -306,7 +330,21 @@ export function SessionRoot(props: {
       return;
     }
     setError('');
+    setRagFail(null);
     setGenerating(true);
+    let references: RagReference[] = [];
+    try {
+      references = await retrieveReferences(opts);
+    } catch (e) {
+      // 檢索失敗：不自動略過（那是 fallback），停在錯誤列給「重試」與「這段不帶參考範例繼續」
+      const msg = e instanceof Error ? e.message : String(e);
+      appLog('rag.fail', { error: msg });
+      setGenerating(false);
+      setRagFail({ opts });
+      setError(`參考範例檢索失敗：${msg}`);
+      return;
+    }
+    if (references.length) appLog('rag.hits', { ids: references.map((r) => r.id) });
     appLog('gen.start', { mode: data.ui.mode, ...(opts.userText ? { user: opts.userText.slice(0, 40) } : {}), ...(opts.regenerateId ? { regenerate: opts.regenerateId } : {}) });
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -362,6 +400,7 @@ export function SessionRoot(props: {
           history: data.optOn.history ? data.history.slice(0, 3).map((h) => `${h.title}：${h.body}`) : null,
           tone: data.tone,
           secretFormat: data.secretFormat,
+          layout: data.layout,
           mode: opts.userText ? 'interactive' : data.ui.mode,
           userInput: opts.userText ?? '',
           intimacy: data.ui.intimacy,
@@ -375,6 +414,7 @@ export function SessionRoot(props: {
           lineRange: { min: s.linesMin, max: s.linesMax },
           isFirstSegment: prior.length === 0,
           withEn: data.ui.sub === 'en',
+          references,
         },
         onEvent: (ev, i) => {
           // core 先送這句的 se 再送台詞：音效收起來掛到這句上，播放時一起開始
@@ -605,7 +645,9 @@ export function SessionRoot(props: {
         toast('已排在這段之後');
       } else void generate({ userText: t });
     },
-    retry: () => void generate(latest && !latest.items.length ? { regenerateId: latest.id } : {}),
+    retry: () => void (ragFail ? generate(ragFail.opts) : generate(latest && !latest.items.length ? { regenerateId: latest.id } : {})),
+    ragFailed: !!ragFail,
+    continueWithoutRag: () => void (ragFail && generate({ ...ragFail.opts, skipRag: true })),
     stop: (reason) => {
       if (!abortRef.current) return;
       stopReason.current = reason ?? '';

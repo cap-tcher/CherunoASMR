@@ -83,6 +83,21 @@ export function FieldRow({ f, onChange, onRemove }: { f: StateField; onChange: (
             <Num label="最大" value={f.max} onChange={(v) => set({ max: v } as Partial<StateField>)} />
             <Num label="每段最多變化" value={f.maxDelta} onChange={(v) => set({ maxDelta: v } as Partial<StateField>)} />
             <Num label="初始值" value={f.initial} onChange={(v) => set({ initial: v } as Partial<StateField>)} />
+            <label className="cfg-item">
+              <span>單位</span>
+              <input className="input" value={f.unit ?? ''} placeholder="例：bpm" style={{ maxWidth: 90 }} onChange={(e) => set({ unit: e.target.value || undefined } as Partial<StateField>)} />
+            </label>
+            <label className="cfg-item grow">
+              <span>區間標籤（一行一段：下限 標籤）</span>
+              <textarea
+                className="textarea"
+                rows={2}
+                placeholder={'0 初識\n100 熟人\n500 戀人\n1000 戀人以上'}
+                defaultValue={(f.tiers ?? []).map((t) => `${t.min} ${t.label}`).join('\n')}
+                onBlur={(e) => set({ tiers: parseTiers(e.target.value) } as Partial<StateField>)}
+              />
+            </label>
+            <span className="hint">數值落在哪一段就顯示那段的標籤，例：158(+8) 熟人。標籤取「下限 ≤ 數值」的最後一段</span>
           </>
         )}
         {f.type === 'enum' && (
@@ -119,6 +134,10 @@ export function FieldRow({ f, onChange, onRemove }: { f: StateField; onChange: (
         )}
         {f.type === 'zones' && (
           <>
+            <label className="cfg-item">
+              <span>等級名稱</span>
+              <input className="input" value={f.levelLabel ?? ''} placeholder="Lv." style={{ maxWidth: 90 }} onChange={(e) => set({ levelLabel: e.target.value || undefined } as Partial<StateField>)} />
+            </label>
             <Num label="Lv. 下限" value={f.levelMin} onChange={(v) => set({ levelMin: v } as Partial<StateField>)} />
             <Num label="Lv. 上限" value={f.levelMax} onChange={(v) => set({ levelMax: v } as Partial<StateField>)} />
             <Num label="每段最多變化" value={f.maxDelta} onChange={(v) => set({ maxDelta: v } as Partial<StateField>)} />
@@ -139,4 +158,14 @@ export function FieldRow({ f, onChange, onRemove }: { f: StateField; onChange: (
       </div>
     </div>
   );
+}
+
+/** 「0 初識」一行一段 → 區間標籤；空白行略過，下限不是數字的行不收（畫面上看得到收了哪些） */
+export function parseTiers(text: string): { min: number; label: string }[] | undefined {
+  const out = text
+    .split(/\r?\n/)
+    .map((l) => /^\s*(-?\d+(?:\.\d+)?)\s*[~～\-－]?\s*(?:\d+(?:\.\d+)?)?\s+(.+?)\s*$/.exec(l))
+    .filter((m): m is RegExpExecArray => !!m)
+    .map((m) => ({ min: Number(m[1]), label: m[2]! }));
+  return out.length ? out : undefined;
 }

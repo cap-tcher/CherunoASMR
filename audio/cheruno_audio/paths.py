@@ -28,6 +28,7 @@ def _defaults() -> dict[str, Path]:
         "ffmpegDir": runtime / "ffmpeg" / "bin",  # ZONOS 登錄參考音要解碼
         "qwenPython": runtime / "qwen" / ".venv" / "Scripts" / "python.exe",
         "qwenModel": models / "qwen" / "Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+        "ragDir": data / "rag",  # rag pipeline 建好的索引：<ragDir>/<名稱>/index/
     }
 
 

@@ -15,6 +15,9 @@ import {
   GEMINI_BASE,
   OPENAI_BASE,
   chatModels,
+  initialSnapshot,
+  StateTimeline,
+  type Snapshot,
   validateFormat,
   type ConnectionResult,
   type PanelBlock,
@@ -29,7 +32,7 @@ import { FieldRow, blankField } from '../components/FieldEditor.tsx';
 import { RequestLog } from '../components/RequestLog.tsx';
 import { AppLog } from '../components/AppLog.tsx';
 import { traced } from '../requestLog.ts';
-import { download, type AppData, type Engine, endpointOf } from '../store.ts';
+import { download, type AppData, type Engine, endpointOf, ZONE_MAP_FIELD } from '../store.ts';
 import { READY_TIMEOUT, SERVICE_LABEL, isLocalLms, loadLmsModel, serviceStatus, startLms, startTts, stopTts, unloadLms, waitTtsReady, type ServiceStatus, type TtsService } from '../services.ts';
 
 // 照功能地圖分類（[[SCR-03_設定頁版面]]）：每個分類是 outline 第一層，sections 是第二層（Sec 的 id）
@@ -82,6 +85,24 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
   const rulesFile = useRef<HTMLInputElement>(null);
   const backupFile = useRef<HTMLInputElement>(null);
   const setS = <K extends keyof AppData['settings']>(k: K, v: AppData['settings'][K]) => update((d) => ({ ...d, settings: { ...d.settings, [k]: v } }));
+  const setRag = <K extends keyof AppData['settings']['rag']>(k: K, v: AppData['settings']['rag'][K]) => update((d) => ({ ...d, settings: { ...d.settings, rag: { ...d.settings.rag, [k]: v } } }));
+  // RAG 索引清單（音訊服務 /rag/collections）：進「生成方式」分頁時讀
+  const [ragCols, setRagCols] = useState<{ name: string; chunks: number; embed: { backend: string; model: string | null } }[] | null>(null);
+  const [ragErr, setRagErr] = useState('');
+  const [ragAbsent, setRagAbsent] = useState(false); // 音訊服務沒有 /rag（公開版目前不附 RAG）
+  const refreshRag = () => {
+    setRagErr('');
+    fetch(`${s.audioBase.replace(/\/+$/, '')}/rag/collections`)
+      .then((r) => {
+        setRagAbsent(r.status === 404);
+        return r.ok ? r.json() : r.status === 404 ? { collections: [] } : Promise.reject(new Error(`HTTP ${r.status}`));
+      })
+      .then((j: { collections: NonNullable<typeof ragCols> }) => setRagCols(j.collections))
+      .catch((e: unknown) => setRagErr(`讀不到索引清單：${e instanceof Error ? e.message : String(e)}`));
+  };
+  useEffect(() => {
+    if (tab === 'gen') refreshRag();
+  }, [tab]);
   const tplProblems = checkTemplates(tpl);
   const tplDirty = JSON.stringify(tpl) !== JSON.stringify(data.templates);
   const fmtDirty = JSON.stringify(fmt) !== JSON.stringify(data.secretFormat);
@@ -253,8 +274,19 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
   function applyFormat() {
     try {
       validateFormat(fmt);
-      update((d) => ({ ...d, secretFormat: fmt }));
-      props.toast('欄位表已套用；這次對話會重新開始');
+      // 角色存著的狀態跟著新欄位表：新欄位用初始值、原本有的保留、刪掉的不帶；驗證不過的角色維持原樣（聆聽頁會說明怎麼處理）
+      const migrate = (st: Snapshot): Snapshot => {
+        const next = initialSnapshot(fmt);
+        for (const f of fmt.fields) if (st[f.key] !== undefined) next[f.key] = st[f.key]!;
+        try {
+          new StateTimeline(fmt, ['x']).setBase('x', next);
+          return next;
+        } catch {
+          return st;
+        }
+      };
+      update((d) => ({ ...d, secretFormat: fmt, characters: d.characters.map((c) => (c.state ? { ...c, state: migrate(c.state) } : c)) }));
+      props.toast('欄位表已套用；角色的狀態補上新欄位（初始值），這次對話會重新開始');
     } catch (e) {
       setFmtErr(e instanceof Error ? e.message : String(e));
     }
@@ -338,7 +370,7 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
 
   const cats: OutlineCat<SysTab>[] = [
     { k: 'conn', ...CAT_INFO.conn, note: s.model ? '已設定' : '未設定', sections: [{ id: 'conn-llm', label: 'LLM' }, { id: 'conn-tts', label: '語音合成' }] },
-    { k: 'gen', ...CAT_INFO.gen, sections: [{ id: 'gen-lines', label: '每段長度' }, { id: 'gen-context', label: '上下文' }, { id: 'gen-state', label: '狀態更新' }, { id: 'gen-clock', label: '故事時鐘' }, { id: 'gen-sleep', label: '睡眠模式' }] },
+    { k: 'gen', ...CAT_INFO.gen, sections: [{ id: 'gen-lines', label: '每段長度' }, { id: 'gen-context', label: '上下文' }, { id: 'gen-state', label: '狀態更新' }, { id: 'gen-clock', label: '故事時鐘' }, { id: 'gen-rag', label: '參考範例' }, { id: 'gen-sleep', label: '睡眠模式' }] },
     { k: 'prompt', ...CAT_INFO.prompt, sections: [{ id: 'prompt-system', label: '系統核心規則' }, { id: 'prompt-opening', label: '開場劇本' }] },
     { k: 'intimacy', ...CAT_INFO.intimacy, note: data.rulesName, sections: [{ id: 'int-prompt', label: '親密模式提示詞' }, { id: 'int-defs', label: '狀態定義' }, { id: 'int-fields', label: '欄位表' }, { id: 'int-layout', label: '面板版面' }, { id: 'int-file', label: '規則設定檔' }] },
     { k: 'templates', ...CAT_INFO.templates, note: tplDirty ? '未儲存' : '', sections: tplSections.map((x) => ({ id: x.id, label: x.label })) },
@@ -591,6 +623,42 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
               </Field>
             </Sec>
 
+            {!ragAbsent && (
+            <Sec id="gen-rag" title="參考範例（RAG）" desc="生成每一段前，從本機索引找幾段相近的對話片段放進提示詞，當語氣與表達的參考。索引用 rag/ 建（說明見 rag/README.md）。">
+              <Field label="索引" hint={ragCols && !ragCols.length ? '還沒有索引：用 rag/ 建好，放在存檔資料夾旁的 data/rag/（或 cheruno.local.json 的 ragDir）。' : '選「不使用」就不檢索。'}>
+                <div className="lin-actions">
+                  <select className="select" value={s.rag.collection} onChange={(e) => setRag('collection', e.target.value)} style={{ maxWidth: 320 }}>
+                    <option value="">不使用</option>
+                    {(ragCols ?? []).map((c) => (
+                      <option key={c.name} value={c.name}>
+                        {c.name}（{c.chunks} 個片段{c.embed.backend === 'none' ? '，只用關鍵字' : ''}）
+                      </option>
+                    ))}
+                    {s.rag.collection && ragCols && !ragCols.some((c) => c.name === s.rag.collection) && <option value={s.rag.collection}>{s.rag.collection}（找不到）</option>}
+                  </select>
+                  <button type="button" className="btn sm ghost" onClick={refreshRag}>
+                    重新整理
+                  </button>
+                  {ragErr && <span className="hint bad-t">{ragErr}</span>}
+                </div>
+              </Field>
+              {(() => {
+                const col = ragCols?.find((c) => c.name === s.rag.collection);
+                return col && col.embed.backend === 'lmstudio' ? <p className="hint">這個索引用 LM Studio 的 {col.embed.model} 做查詢向量：檢索時要載入它（約 0.8 GB 顯存，可和 LLM 同時載著）。</p> : null;
+              })()}
+              <Check checked={s.rag.local} onChange={(v) => setRag('local', v)} label="本機 LM Studio 時帶參考範例" />
+              <Check checked={s.rag.cloud} onChange={(v) => setRag('cloud', v)} label="其他端點（Gemini、OpenAI、Claude…）時帶參考範例" hint="每段多幾百到上千字的 token；各家的內容政策不同，被擋時整段會失敗。" />
+              <div className="lin-pair">
+                <Field label={<>片段數　<span className="num">{s.rag.k} 個</span></>}>
+                  <input type="range" className="range" min={1} max={10} step={1} value={s.rag.k} aria-valuetext={`${s.rag.k} 個`} onChange={(e) => setRag('k', Number(e.target.value))} />
+                </Field>
+                <Field label="總字數上限" hint="超過就少帶幾個片段。">
+                  <input className="input num" type="number" min={200} max={8000} step={100} value={s.rag.maxChars} onChange={(e) => setRag('maxChars', Math.min(8000, Math.max(200, Math.round(Number(e.target.value)))))} />
+                </Field>
+              </div>
+            </Sec>
+            )}
+
             <Sec id="gen-sleep" title="睡眠模式" desc="播放列選「睡眠」時：照時長慢慢收尾。">
               <Field label="時長（分鐘）">
                 <input className="input num" type="number" min="5" max="240" value={s.sleepMinutes} onChange={(e) => setS('sleepMinutes', Number(e.target.value))} style={{ maxWidth: 160 }} />
@@ -646,6 +714,9 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
               <div className="lin-actions">
                 <button type="button" className="btn" onClick={() => setFmt({ fields: [...fmt.fields, blankField('text', `field${fmt.fields.length + 1}`)] })}>
                   新增欄位
+                </button>
+                <button type="button" className="btn" disabled={fmt.fields.some((f) => f.type === 'zones' && f.label === ZONE_MAP_FIELD.label) || fmt.fields.some((f) => f.key === ZONE_MAP_FIELD.key)} title="ADV3.0 的性感帶地圖：部位、開發度、狀態；部位由模型新增" onClick={() => setFmt({ fields: [...fmt.fields, structuredClone(ZONE_MAP_FIELD) as unknown as StateField] })}>
+                  加入性感帶地圖欄位
                 </button>
                 <button type="button" className="btn" disabled={genBusy || !data.statDefs.trim()} onClick={() => void genFields()}>
                   {genBusy ? '產生中' : '由狀態定義產生欄位'}

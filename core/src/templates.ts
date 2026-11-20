@@ -34,7 +34,7 @@ type Group<K extends string> = Record<K, string>;
 
 export interface PromptTemplates {
   segment: Group<
-    | 'secCharacter' | 'secListener' | 'secScene' | 'secWorld' | 'secGlossary' | 'secMemories' | 'secHistory' | 'secSecret' | 'secStateFormat' | 'secStatDefs' | 'secStateNow' | 'secTone' | 'secOutput' | 'secOpening' | 'secIntimacyScript' | 'secSecretGen' | 'secretGenBody' | 'secClock' | 'clockBody'
+    | 'secCharacter' | 'secListener' | 'secScene' | 'secWorld' | 'secGlossary' | 'secMemories' | 'secHistory' | 'secSecret' | 'secStateFormat' | 'secStatDefs' | 'secStateNow' | 'secTone' | 'secOutput' | 'secOpening' | 'secIntimacyScript' | 'secSecretGen' | 'secretGenBody' | 'secClock' | 'clockBody' | 'secReferences' | 'referenceItem'
     | 'card' | 'listener' | 'scene' | 'glossaryItem' | 'listItem'
     | 'fieldNumber' | 'fieldText' | 'fieldEnum' | 'fieldTags' | 'fieldZones' | 'fieldKv' | 'namesFixed' | 'namesFree'
     | 'output' | 'outputState' | 'stateAsk' | 'stateAskSecret' | 'translationZh' | 'translationZhEn'
@@ -66,6 +66,8 @@ export const DEFAULT_TEMPLATES: PromptTemplates = {
     secSecretGen: '## 角色的秘密（還沒有）',
     secClock: '## 現在時刻',
     clockBody: '現在是 {{time}}。在 time 欄位寫這段結束時的時刻（HH:MM，24 小時制；照這段花的時間往後推，不會倒退）。',
+    secReferences: '## 參考範例（語氣與表達的參考；學說話方式，不要照抄內容與設定）',
+    referenceItem: '{{header}}\n{{text}}',
     secretGenBody: '這個角色還沒有秘密。這段在 secret 欄位依下面的格式寫一段（正體中文，200 字內；之後每段都會帶，台詞裡不要說出來）：\n{{secretTemplate}}',
     secOpening: '## 開場',
     card: '名前：{{name}}（{{reading}}）\n年齢・性別：{{ageSex}}\n聴き手との関係：{{relation}}\n外見：{{appearance}}\n背景：{{bio}}\n性格：{{personality}}\n話し方・癖：{{behavior}}\n口癖：{{catchphrase}}',
@@ -164,6 +166,8 @@ export const TEMPLATE_META: { [G in keyof PromptTemplates]: { title: string; des
       secSecretGen: { label: '段落標題：角色還沒有秘密', vars: {} },
       secClock: { label: '段落標題：現在時刻（故事時鐘）', vars: {} },
       clockBody: { label: '故事時鐘說明', rows: 2, vars: V({ time: '現在時刻 HH:MM' }) },
+      secReferences: { label: '段落標題：參考範例（RAG 檢索到的對話片段）', vars: {} },
+      referenceItem: { label: '參考範例的一個片段', rows: 2, vars: V({ header: '片段表頭（場景等）', text: '對話內容' }) },
       secretGenBody: { label: '角色還沒有秘密時的指示', rows: 3, vars: V({ secretTemplate: '秘密生成格式' }) },
       secOpening: { label: '段落標題：開場（只在第一段）', vars: {} },
       card: { label: '角色卡', rows: 8, vars: V({ name: '名字', reading: '讀み', ageSex: '年齡與性別', relation: '與你的關係', appearance: '外觀', bio: '背景', personality: '性格', behavior: '行為模組', catchphrase: '口頭禪' }) },

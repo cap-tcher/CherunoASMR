@@ -199,6 +199,8 @@ p { margin: 0; }
 .zone-row:last-child { border-bottom: 0; }
 .zone-row .zn { color: var(--color-ink); }
 .zone-row .zl { color: var(--color-ink-2); text-align: right; }
+/* 數值的區間標籤（親密度 158 熟人） */
+.tier { color: var(--color-accent-text); font-size: 0.86em; margin-left: 2px; }
 .zone-row .zs { grid-column: 1 / -1; font-size: 13px; color: var(--color-accent-text); }
 .zone-row .d.accent { color: var(--color-accent-text); }
 .zone-edit { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }

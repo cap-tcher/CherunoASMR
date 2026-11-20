@@ -65,9 +65,10 @@ describe('buildMessages', () => {
     expect(user!.content).not.toContain('查好資料');
   });
 
-  it('上一段快照以 JSON 帶入 system', () => {
-    const [sys] = buildMessages(input({ state: { mio: { affection: 42 } } }), T);
-    expect(sys!.content).toContain('{"mio":{"affection":42}}');
+  it('目前狀態以可讀格式帶入 system（分段標題、值(±變化)）', () => {
+    const [sys] = buildMessages(input({ state: { mio: { affection: 42 } }, statePrev: { mio: { affection: 37 } } }), T);
+    expect(sys!.content).toContain('好感度: 42(+5)');
+    expect(sys!.content).toMatch(/## 目前的秘密狀態\n# /);
   });
 
   it('沒填的選用欄位不產生空標題或空行', () => {
@@ -245,5 +246,22 @@ describe('輸出格式的句數', () => {
     expect(user({ min: 4, max: 10 })).toContain('lines：4～10 句台詞');
     expect(user({ min: 6, max: 6 })).toContain('lines：6 句台詞');
     expect(user({ min: 6, max: 6 })).not.toContain('3～8');
+  });
+});
+
+describe('RAG 參考範例', () => {
+  const T = DEFAULT_TEMPLATES.segment;
+  it('沒有 references 或空陣列：提示詞和沒有 RAG 時一字不差', () => {
+    const base = buildMessages(input(), T);
+    expect(buildMessages(input({ references: [] }), T)).toEqual(base);
+    expect(JSON.stringify(base)).not.toContain('參考範例');
+  });
+  it('有 references：系統提示多一節參考範例，片段依序帶表頭與內容', () => {
+    const m = buildMessages(input({ references: [{ id: 'a#0', header: '場面：睡前', text: 'A：おやすみ' }, { id: 'b#0', header: '', text: 'B：雨だね' }] }), T);
+    const sys = String(m[0]!.content);
+    expect(sys).toContain(T.secReferences);
+    expect(sys.indexOf(['場面：睡前', 'A：おやすみ'].join(String.fromCharCode(10)))).toBeGreaterThan(sys.indexOf(T.secReferences));
+    expect(sys).toContain('B：雨だね');
+    expect(sys.indexOf(T.secReferences)).toBeLessThan(sys.indexOf(T.secOutput)); // 在輸出格式之前
   });
 });

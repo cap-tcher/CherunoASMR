@@ -13,7 +13,7 @@ export interface GenerateOptions {
   model: string;
   temperature: number;
   maxTokens: number;
-  prompt: Omit<PromptInput, 'state' | 'seIds'>;
+  prompt: Omit<PromptInput, 'state' | 'statePrev' | 'seIds'>;
   templates: SegmentTemplates; // 系統核心 › 提示詞
   onActions?: (actions: string[]) => void;
   timeline: StateTimeline;
@@ -93,8 +93,8 @@ export async function generateSegment(o: GenerateOptions): Promise<GenerateResul
     await new Promise((ok) => setTimeout(ok, rc.delayMs ?? 3000));
     await waitReady(o.endpoint, { ...(rc.waitTimeoutMs ? { timeoutMs: rc.waitTimeoutMs } : {}), ...(rc.waitIntervalMs !== undefined ? { intervalMs: rc.waitIntervalMs } : {}), ...(o.fetchFn ? { fetchFn: o.fetchFn } : {}), ...(o.signal ? { signal: o.signal } : {}) });
   };
-  const stateBefore = o.regenerate ? o.timeline.before(o.segmentId) : o.timeline.current();
-  const messages = buildMessages({ ...o.prompt, state: stateBefore, seIds: SE_IDS }, o.templates);
+  const { now: stateBefore, prev: statePrev } = o.timeline.pair(o.regenerate ? o.segmentId : undefined);
+  const messages = buildMessages({ ...o.prompt, state: stateBefore, statePrev, seIds: SE_IDS }, o.templates);
   const im = o.prompt.intimacy;
   const withSecret = im && !o.prompt.character.secret.trim();
   const sep = im && !!o.prompt.stateSeparately;

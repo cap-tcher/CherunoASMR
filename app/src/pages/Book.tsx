@@ -1,4 +1,5 @@
 // 萬物之書（V4：頁面＋左側子導覽）。回憶的「AI 整理」＝Chapter Manager（ADV3.0 handleAutoGenerateChapters）。
+import { CardRegen } from '../components/CardRegen.tsx';
 import { initialSnapshot, latestChapter, organizeChapters, unprocessed, validateManual, type CardTextField, type Chapter, type GlossaryEntry } from '@cheruno/core';
 import { useRef, useState } from 'react';
 import { humanStateError, useSession } from '../session.tsx';
@@ -256,7 +257,7 @@ export function BookPage(props: {
                       {openChar === c.id ? '收合' : '編輯'}
                     </button>
                     <button type="button" className="btn sm" onClick={() => props.onRedesign(c)}>
-                      重新設計聲音
+                      {c.voice ? '重新設計聲音' : '設計聲音'}
                     </button>
                     {c.voice?.engine === 'qwen-comfy' && c.voice.ref && data.settings.engine !== 'qwen-comfy' && (
                       <button type="button" className="btn sm" disabled={!!converting} title={`用鎖定時的候選音登錄到 ${ENGINE_LABEL[data.settings.engine]}，之後每句即時合成（現在每句都要 Qwen、很慢）`} onClick={() => void convertVoice(c)}>
@@ -304,6 +305,7 @@ export function BookPage(props: {
                         <textarea className="textarea" rows={4} value={c.secret} onChange={(e) => setChar(c.id, 'secret', e.target.value)} />
                       </label>
                     </div>
+                    <CardRegen data={data} c={c} toast={props.toast} onMerged={(f) => update((d) => ({ ...d, characters: d.characters.map((x) => (x.id === c.id ? { ...x, ...f } : x)) }))} />
                     <div className="lin-sub">
                       <h4>秘密狀態</h4>
                     <StateJson data={data} c={c} update={update} toast={props.toast} />

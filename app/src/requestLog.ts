@@ -148,7 +148,8 @@ export function traced(purpose: string): typeof fetch {
     const request = bodyText === undefined ? null : (tryJson(bodyText) ?? bodyText);
     const isChat = /\/chat\/completions$/.test(url);
     const isTts = /\/tts$|\/voice\/register$/.test(url);
-    const target = isChat || /\/models$/.test(url) ? String((request as { model?: unknown })?.model ?? '（列出模型）') : isTts ? String((request as { engine?: unknown })?.engine ?? '') : '';
+    const isRag = /\/rag\/search$/.test(url);
+    const target = isChat || /\/models$/.test(url) ? String((request as { model?: unknown })?.model ?? '（列出模型）') : isTts ? String((request as { engine?: unknown })?.engine ?? '') : isRag ? String((request as { collection?: unknown })?.collection ?? '') : '';
     // 斷線重連時 core 會輪詢 /models 等端點恢復：標成「等端點恢復」，和真正的連線測試分開
     const p = isChat ? chatPurpose(request, purpose) : /\/models$/.test(url) && purpose !== '連線測試' ? `${purpose}：等端點恢復` : purpose;
     const e: LogEntry = { id: newId(), at: new Date().toISOString(), purpose: p, kind: isTts ? 'tts' : 'llm', url, method, target, request, state: 'pending' };

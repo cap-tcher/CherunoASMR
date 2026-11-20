@@ -1,20 +1,16 @@
 // 建立角色（V4／SCR-02）：依據（角色圖、方向提示、快速標籤）→ 角色卡（保留已填欄位；秘密照秘密生成格式）→ 聲音 3 候選 → 鎖定 → 開始聆聽。
 import { useSession } from '../session.tsx';
-import { CARD_TEXT_FIELDS, generateCharacter, type CardTextField } from '@cheruno/core';
+import { CARD_TEXT_FIELDS, buildVoiceInstruct, generateCharacter, type CardTextField } from '@cheruno/core';
 import { useEffect, useRef, useState } from 'react';
 import { EMPTY_CHARACTER, makeCharId, shrinkImage, type AppData, type Character, type LockedVoice, endpointOf } from '../store.ts';
 import { Field, Outline, Sec, type OutlineCat } from '../components/Outline.tsx';
 import { imageToDataUrl, isKey, putAsset } from '../library.ts';
+import { DIR } from '../components/CardRegen.tsx';
 import { traced } from '../requestLog.ts';
 import { READY_TIMEOUT, SERVICE_LABEL, serviceStatus, startTts, stopTts, unloadLms, waitTtsReady, type ServiceStatus, type TtsService } from '../services.ts';
 import { registerVoice, synthesize } from '../tts.ts';
 
 // 快速標籤一律是明確的成年人關係與情境
-const DIR: [string, string[]][] = [
-  ['關係', ['隔壁的大學學姊', '大學同學', '咖啡店店員', '同公司的前輩', '旅館的接待員']],
-  ['氣質', ['溫柔', '愛捉弄人', '慵懶', '元氣', '冷淡但體貼']],
-  ['ASMR', ['耳かき', '添い寝', '囁き多め', '寝かしつけ', '雨音']],
-];
 const ID_DEFS: [CardTextField, string, string][] = [
   ['reading', '讀み', 'みお'],
   ['subName', '字幕名', '澪'],
@@ -32,7 +28,8 @@ const TEXT_DEFS: [CardTextField, string, string][] = [
 interface Candidate {
   id: 'A' | 'B' | 'C';
   seed: number;
-  state: 'queued' | 'busy' | 'ready' | 'error';
+  state: 'queued' | 'busy' | 'ready' | 'error' | 'cancelled';
+  instruct: string; // 產生這個候選時送給 Qwen 的完整指示（鎖定時存這份，之後改表單也不影響這個聲音）
   ms?: number; // 合成花了多久
   url?: string;
   blob?: Blob;
@@ -41,7 +38,7 @@ interface Candidate {
 }
 type Form = Record<CardTextField, string>;
 
-export function CreatePage(props: { data: AppData; editing: Character | null; onSave: (c: Character) => void; toast: (m: string, bad?: boolean) => void }) {
+export function CreatePage(props: { data: AppData; editing: Character | null; onSave: (c: Character, then: 'listen' | 'book') => void; toast: (m: string, bad?: boolean) => void }) {
   const { data, editing } = props;
   const s = data.settings;
   const vt = data.templates.voice;
@@ -141,6 +138,8 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
   const voiceBusy = cands.some((c) => c.state === 'busy' || c.state === 'queued');
   // 候選一律由 Qwen3-TTS VoiceDesign 依描述產生（[[Research_ASMR_TTS]]：Qwen 設計音色、播放引擎克隆）；描述留空用預設描述
   const voiceDesc = form.voiceDesc.trim() || vt.qwenDefault;
+  // 送給 Qwen 的完整指示：聲音描述＋名字、年齡與性別、性格、說話方式（候選與鎖定用同一份）
+  const voiceInstruct = buildVoiceInstruct(voiceDesc, form);
   const [busySince, setBusySince] = useState(0);
   const [now, setNow] = useState(0);
   useEffect(() => {
@@ -189,10 +188,13 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
     setVoiceErr('');
     setLocked(null);
     setLockedId(null);
-    const list: Candidate[] = (['A', 'B', 'C'] as const).map((id) => ({ id, seed: Math.floor(Math.random() * 2 ** 31), state: 'queued' }));
+    const list: Candidate[] = (['A', 'B', 'C'] as const).map((id) => ({ id, seed: Math.floor(Math.random() * 2 ** 31), state: 'queued', instruct: voiceInstruct }));
     setCands(list);
     setBusySince(Date.now());
+    const ctrl = new AbortController();
+    genAbort.current = ctrl;
     for (const [i, c] of list.entries()) {
+      if (ctrl.signal.aborted) break;
       setCands((xs) => xs.map((x) => (x.id === c.id ? { ...x, state: 'busy' } : x)));
       const t0 = Date.now();
       try {
@@ -200,27 +202,32 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
           engine: 'qwen-comfy',
           text: trial,
           voice: 'normal',
-          speaker: voiceDesc,
+          speaker: c.instruct,
           seed: c.seed,
           style: vt.qwenNormal,
           // 播放引擎不是 Qwen 時，最後一個候選產完就卸載 Qwen（約 7.9 GB），Irodori／ZONOS 才放得進 VRAM
           unload_after: s.engine !== 'qwen-comfy' && i === list.length - 1,
-        });
+        }, ctrl.signal);
         setCands((xs) => xs.map((x) => (x.id === c.id ? { ...x, state: 'ready', url: r.url, blob: r.blob, seconds: r.seconds, ms: Date.now() - t0 } : x)));
       } catch (e) {
+        if (ctrl.signal.aborted) break;
         const msg = e instanceof Error ? e.message : String(e);
         setCands((xs) => xs.map((x) => (x.id === c.id ? { ...x, state: 'error', error: msg } : x)));
         setVoiceErr(msg);
       }
     }
+    // 中斷：還沒完成的候選標成「已中斷」（Qwen 伺服器上已開始的那一句會跑完，沒有中途停止的介面）
+    if (ctrl.signal.aborted) setCands((xs) => xs.map((x) => (x.state === 'busy' || x.state === 'queued' ? { ...x, state: 'cancelled' } : x)));
+    genAbort.current = null;
     setBusySince(0);
   }
+  const genAbort = useRef<AbortController | null>(null);
 
   async function lock(c: Candidate) {
     try {
       // Qwen 播放：記描述＋seed（每句重新設計同一個聲音）；Irodori／ZONOS：把候選音登錄成參考音
-      const speaker = s.engine === 'qwen-comfy' ? voiceDesc : await registerVoice(s.audioBase, s.engine, charId.current, c.blob!);
-      const ref = await putAsset('refvoice', 'wav', c.blob!, { desc: voiceDesc, seed: c.seed, engine: 'qwen-comfy' });
+      const speaker = s.engine === 'qwen-comfy' ? c.instruct : await registerVoice(s.audioBase, s.engine, charId.current, c.blob!);
+      const ref = await putAsset('refvoice', 'wav', c.blob!, { desc: c.instruct, seed: c.seed, engine: 'qwen-comfy' });
       setLocked({ engine: s.engine, speaker, desc: form.voiceDesc, seed: c.seed, lockedAt: new Date().toISOString(), ref });
       setLockedId(c.id);
       props.toast(`已鎖定聲音：候選 ${c.id}`);
@@ -239,8 +246,10 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
   }
 
   const voice = locked ?? editing?.voice ?? null;
-  const ready = !!voice && !!form.name.trim() && !!form.reading.trim();
-  const startHint = !voice ? '先鎖定一個聲音' : !form.name.trim() || !form.reading.trim() ? '名字與讀み要填' : '聲音已鎖定，可以開始';
+  const named = !!form.name.trim() && !!form.reading.trim();
+  const ready = !!voice && named;
+  const startHint = !named ? '名字與讀み要填' : !voice ? '可以先儲存角色，之後到萬物之書的角色分頁設計聲音；開始聆聽要先鎖定一個聲音' : '聲音已鎖定，可以開始';
+  const draft = (): Character => ({ ...(editing ?? EMPTY_CHARACTER), ...form, id: charId.current, image, voice });
 
   // 三步由上往下（[[SCR-03_設定頁版面]]）：依據 → 角色卡 → 聲音；outline 是步驟
   const steps: OutlineCat<'create'>[] = [
@@ -390,6 +399,11 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
               <button type="button" className="btn" disabled={!voiceDesc || voiceBusy || !trial.trim()} onClick={() => void genVoice()}>
                 {voiceBusy ? `生成中（${cands.filter((c) => c.state === 'ready' || c.state === 'error').length}/3，${mmss(elapsed)}）` : cands.length ? '再生成 3 個' : '生成 3 個候選'}
               </button>
+              {voiceBusy && (
+                <button type="button" className="btn" title="停掉還沒完成的候選（Qwen 正在合成的那一句會在背景跑完）" onClick={() => genAbort.current?.abort()}>
+                  中斷
+                </button>
+              )}
             </div>
           </Field>
           <Field as="div" label="需要的服務" hint={playEngine === 'qwen' ? '候選與每句都由 Qwen 聲音設計產生。' : `候選要 Qwen 聲音設計；鎖定時候選音登錄到 ${SERVICE_LABEL[playEngine]}。Qwen 產生候選時整張卡約用到 5.5 GB：和 ${SERVICE_LABEL[playEngine]}（約 1.5 GB）一起放得下，本機 LLM 也載入著就放不下。`}>
@@ -424,14 +438,17 @@ export function CreatePage(props: { data: AppData; editing: Character | null; on
                 </div>
               </div>
               <span className="lin-hint num">
-                {c.state === 'queued' ? '排隊中' : c.state === 'busy' ? '合成中' : c.state === 'error' ? <span className="bad-t">{c.error}</span> : `${c.seconds?.toFixed(1)} 秒音檔，seed ${c.seed}，合成 ${mmss(Math.round((c.ms ?? 0) / 1000))}`}
+                {c.state === 'queued' ? '排隊中' : c.state === 'busy' ? '合成中' : c.state === 'cancelled' ? '已中斷' : c.state === 'error' ? <span className="bad-t">{c.error}</span> : `${c.seconds?.toFixed(1)} 秒音檔，seed ${c.seed}，合成 ${mmss(Math.round((c.ms ?? 0) / 1000))}`}
               </span>
             </div>
           ))}
           {editing?.voice && !locked && <p className="hint">目前的聲音：{editing.voice.engine}，seed {editing.voice.seed}。重新鎖定會取代。</p>}
           <div className="lin-actions" style={{ justifyContent: 'flex-end' }}>
             <span className="hint">{startHint}</span>
-            <button type="button" className="btn primary" disabled={!ready} onClick={() => props.onSave({ ...(editing ?? EMPTY_CHARACTER), ...form, id: charId.current, image, voice })}>
+            <button type="button" className="btn" disabled={!named} title={named ? '存進萬物之書（不用先設計聲音）' : '名字與讀み要填'} onClick={() => props.onSave(draft(), 'book')}>
+              儲存角色
+            </button>
+            <button type="button" className="btn primary" disabled={!ready} onClick={() => props.onSave(draft(), 'listen')}>
               開始聆聽
             </button>
           </div>

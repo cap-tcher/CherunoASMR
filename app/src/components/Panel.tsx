@@ -1,5 +1,6 @@
 // 聆聽 › 右側「X 的狀態」：照系統核心 › 秘密規則的面板版面顯示；編輯鍵＝在面板內直接改數值（ADV3.0 IntimacyPanel editMode）。
 // 區塊對應 ADV3.0：zones（部位 Lv.＋狀態）、kv（身體數值，可用 include 篩選）、tags（狀態標籤，「名稱：說明」）、text（心裡話，直接顯示）。
+import { tierLabel } from '@cheruno/core';
 import { includeMatch, resolveLayout, type KvItem, type Snapshot, type StateField, type Zone } from '@cheruno/core';
 import { useState } from 'react';
 import { humanStateError, useSession } from '../session.tsx';
@@ -58,6 +59,19 @@ export function Panel({ data }: { data: AppData }) {
     return d ? <span className={d > 0 ? 'd ok-t' : 'd bad-t'}>本段 {d > 0 ? `+${d}` : d}</span> : null;
   };
 
+  /** 數值顯示：值＋單位＋區間標籤（例：158 熟人、80 bpm） */
+  const numShown = (f: Extract<StateField, { type: 'number' }>) => {
+    const v = snap[f.key] as number;
+    const tier = tierLabel(f, v);
+    return (
+      <>
+        <span className="v">{String(v)}</span>
+        {f.unit ? <span className="hint"> {f.unit}</span> : null}
+        {tier ? <span className="tier"> {tier}</span> : null}
+      </>
+    );
+  };
+
   function valueEditor(f: StateField) {
     const v = snap[f.key];
     if (f.type === 'number')
@@ -106,7 +120,7 @@ export function Panel({ data }: { data: AppData }) {
             <div key={z.name} className="zone-row">
               <span className="zn">{z.name}</span>
               <span className="num zl">
-                Lv.{z.level}
+                {f.levelLabel || 'Lv.'} {z.level}
                 {d !== 0 && <span className={d > 0 ? 'd ok-t' : 'd bad-t'}> {d > 0 ? `+${d}` : d}</span>}
                 {was === undefined && prev && <span className="d accent"> 新</span>}
               </span>
@@ -197,7 +211,7 @@ export function Panel({ data }: { data: AppData }) {
                             valueEditor(f)
                           ) : (
                             <span className="num">
-                              <span className="v">{String(snap[f.key])}</span> {delta(f)}
+                              {numShown(f)} {delta(f)}
                             </span>
                           )}
                         </div>
@@ -217,7 +231,17 @@ export function Panel({ data }: { data: AppData }) {
                     {b.fields.map((f) => (
                       <div key={f.key} style={{ display: 'contents' }}>
                         <dt>{f.label}</dt>
-                        <dd lang="ja">{editing ? valueEditor(f) : String(snap[f.key] ?? '') || '沒有'}</dd>
+                        <dd lang="ja">
+                          {editing ? (
+                            valueEditor(f)
+                          ) : f.type === 'number' ? (
+                            <span className="num">
+                              {numShown(f)} {delta(f)}
+                            </span>
+                          ) : (
+                            String(snap[f.key] ?? '') || '沒有'
+                          )}
+                        </dd>
                       </div>
                     ))}
                   </dl>
