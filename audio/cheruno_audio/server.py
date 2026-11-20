@@ -10,6 +10,7 @@ POST /tts     {engine, text, voice, speaker} → audio/wav
 from __future__ import annotations
 
 import importlib.util
+from typing import Annotated
 
 import base64
 import binascii
@@ -22,9 +23,10 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from .claude_proxy import claude_router
+from .codex_proxy import codex_router
 from .engines import EngineError, EngineUnavailable, HttpEngine, TtsRequest, build_engines
 from .datadir import DataDir, datadir_router
 from .services import default_runner, services_router
@@ -32,6 +34,21 @@ from .store import store_router
 from .text import VOICES
 
 DEFAULT_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+
+
+class ConditionValues(BaseModel):
+    """ZONOS 的整句條件（範圍照 /v2/capabilities 的 edges 與 core tone.ts CONDITION_RANGE）"""
+
+    model_config = {"extra": "forbid"}
+    loudness: float | None = Field(default=None, ge=-40, le=0)
+    fmax: float | None = Field(default=None, ge=4000, le=24000)
+    speaking_rate: float | None = Field(default=None, ge=4, le=35)
+
+
+class SpanBody(BaseModel):
+    start: int = Field(ge=0)
+    end: int = Field(ge=1)
+    controls: dict[Annotated[str, StringConstraints(pattern=r"^[a-z_]+\.[a-z_]+$", max_length=60)], Annotated[float, Field(ge=-20, le=20)]] = Field(max_length=8)
 
 
 class TtsBody(BaseModel):
@@ -44,6 +61,11 @@ class TtsBody(BaseModel):
     style: str | None = Field(default=None, max_length=200)
     num_steps: int | None = Field(default=None, ge=4, le=64)
     unload_after: bool = False
+    # ZONOS 的語氣（core tone.ts 換算出的 /v2/controls 方向與強度）；鍵是「類別.方向」，最多 8 個，強度 ±20 以內
+    controls: dict[Annotated[str, StringConstraints(pattern=r"^[a-z_]+\.[a-z_]+$", max_length=60)], Annotated[float, Field(ge=-20, le=20)]] | None = Field(default=None, max_length=8)
+    control_spans: list[SpanBody] | None = Field(default=None, max_length=3)  # 句中耳語《》的範圍
+    control_span_rate: float | None = Field(default=None, ge=0.5, le=10)
+    condition_values: ConditionValues | None = None
 
 
 class RegisterBody(BaseModel):
@@ -66,6 +88,8 @@ def create_app(engines: dict[str, HttpEngine] | None = None, data_dir: Path | No
     # 存檔區：程式參數（測試）＞環境變數 CHERUNO_DATA_DIR＞設定檔（app 的存檔畫面可以改，見 datadir.py）
     dd = DataDir.load(data_dir, config_file)
     app.include_router(datadir_router(dd, pick_dir) if pick_dir is not None else datadir_router(dd))
+    # Codex 連線用的 CODEX_HOME 存在存檔區設定檔旁（這份安裝的所有存檔共用）
+    app.include_router(codex_router(dd.config_file.parent / "codex.json", pick=pick_dir) if pick_dir is not None else codex_router(dd.config_file.parent / "codex.json"))
     app.include_router(store_router(lambda: dd.path))
     app.include_router(services_router(lambda: dd.path, (lambda: runner) if runner is not None else default_runner))
     # RAG 是選用元件：有裝 cheruno_rag（開發版以 path 依賴引用 rag/）才開 /rag；公開版目前不附，app 看到 /rag 不存在就不顯示 RAG 設定
@@ -91,7 +115,7 @@ def create_app(engines: dict[str, HttpEngine] | None = None, data_dir: Path | No
             raise HTTPException(400, f"未知的 voice：{body.voice}")
         t0 = time.perf_counter()
         try:
-            wav = engine.synthesize(TtsRequest(text=body.text, voice=body.voice, speaker=body.speaker, caption=body.caption, seed=body.seed, style=body.style, num_steps=body.num_steps, unload_after=body.unload_after))
+            wav = engine.synthesize(TtsRequest(text=body.text, voice=body.voice, speaker=body.speaker, caption=body.caption, seed=body.seed, style=body.style, num_steps=body.num_steps, unload_after=body.unload_after, controls=body.controls, control_spans=[sp.model_dump() for sp in body.control_spans] if body.control_spans else None, control_span_rate=body.control_span_rate, condition_values=body.condition_values.model_dump(exclude_none=True) if body.condition_values else None))
         except EngineUnavailable as e:
             raise HTTPException(503, str(e)) from e
         except EngineError as e:

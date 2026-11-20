@@ -1,5 +1,5 @@
 // 聆聽（V4）：中央台本＋右側檢視面板；互動模式時台本下方是回話區。
-import { estimateLineMs, layoutSeBlocks, rubyParts, type LineEvent, type SeBlock } from '@cheruno/core';
+import { estimateLineMs, layoutSeBlocks, rubyParts, type LineEvent, type SeBlock, EMOTION_LABEL, SPEED_LABEL, whisperLike } from '@cheruno/core';
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Panel } from '../components/Panel.tsx';
 import { fmtClock, useSession, type AiMsg, type LineItem } from '../session.tsx';
@@ -8,7 +8,7 @@ import { SE_LABEL, type AppData } from '../store.ts';
 
 const PAGE = 50; // ADV3.0 visibleCount（L1210）
 
-const VOICE = { normal: '一般', whisper: '囁き', breath: '吐息' } as const;
+const VOICE = { normal: '一般', soft: '小声', whisper: '囁き', breath: '吐息' } as const;
 const SIDE = { left: '左耳', center: '正面', right: '右耳' } as const;
 const SIDE1 = { left: '左', center: '中', right: '右' } as const;
 
@@ -17,12 +17,14 @@ function Ruby({ ja, show }: { ja: string; show: boolean }) {
     <>
       {rubyParts(ja).map((p, i) =>
         p.reading && show ? (
-          <ruby key={i}>
+          <ruby key={i} className={p.whisper ? 'wsp' : undefined}>
             {p.text}
             <rt>{p.reading}</rt>
           </ruby>
         ) : (
-          <span key={i}>{p.text}</span>
+          <span key={i} className={p.whisper ? 'wsp' : undefined}>
+            {p.text}
+          </span>
         ),
       )}
     </>
@@ -178,7 +180,7 @@ function Line({ it, ui }: { it: LineItem; ui: AppData['ui'] }) {
       tabIndex={state === 'gen' ? -1 : 0}
       aria-disabled={state === 'gen'}
       aria-pressed={active}
-      aria-label={`${label}：${it.ev.ja}`}
+      aria-label={`${label}：${it.ev.ja.replace(/[《》]/g, '')}`}
       title={it.error ?? label}
       className="line"
       data-key={it.key}
@@ -198,7 +200,13 @@ function Line({ it, ui }: { it: LineItem; ui: AppData['ui'] }) {
         {sub !== null && <p className="sub">{sub}</p>}
       </div>
       <div className="tag">
-        <span className={lit ? 'v accent' : 'v'}>{VOICE[it.ev.voice]}</span>
+        <span className={lit ? 'v accent' : 'v'}>
+          {VOICE[it.ev.voice]}
+          {/* 囁き／吐息不疊情緒（tone.ts whisperLike）：念出來沒有這個效果就不寫 */}
+          {it.ev.emotion && it.ev.emotion !== 'none' && !whisperLike(it.ev.voice) ? `・${EMOTION_LABEL[it.ev.emotion]}` : ''}
+          {/* 耳語類（小声／囁き／吐息）不疊速度（tone.ts 疊加上限），念出來沒有這個效果就不寫 */}
+          {it.ev.speed && it.ev.speed !== 'normal' && it.ev.voice === 'normal' ? `・${SPEED_LABEL[it.ev.speed]}` : ''}
+        </span>
         <span role="img" aria-label={`聲音位置：${SIDE[it.ev.pos.side]} ${it.ev.pos.distance_cm} 公分`} className="posbar">
           <span>左</span>
           <span className="track">

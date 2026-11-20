@@ -29,13 +29,17 @@ class EngineError(Exception):
 @dataclass(frozen=True)
 class TtsRequest:
     text: str  # 可含 {漢字|よみ}
-    voice: str  # normal | whisper | breath
+    voice: str  # normal | soft | whisper | breath
     speaker: str  # 引擎端的聲音 id；空字串＝引擎預設（Irodori 為不帶參考音）
     caption: str = ""  # 聲音描述（Irodori VoiceDesign）；空＝不帶
     seed: int | None = None  # 固定 seed：3 個候選＝同一描述、不同 seed
     style: str | None = None  # Qwen：接在聲音描述後的語氣後綴（app 依提示詞模板與 voice 給）
     num_steps: int | None = None  # Irodori 取樣步數；None＝伺服器預設（RF 40）。GTX 1070 實測 24 步 RTF 0.83、40 步 1.7
     unload_after: bool = False  # Qwen：這句產完就卸載模型（建立角色最後一個候選用，騰出 VRAM 給播放引擎）
+    controls: dict[str, float] | None = None  # ZONOS：語氣（app 依 core tone.ts 換算；[[PLAN_ZONOS語氣控制]]）
+    control_spans: list[dict] | None = None  # ZONOS：句中範圍 [{start, end, controls}]（位置是 to_reading 後的字元）
+    control_span_rate: float | None = None  # ZONOS：每字幾格音框（日文約 3）
+    condition_values: dict[str, float] | None = None  # ZONOS：整句的條件 loudness（LUFS）／fmax（Hz）／speaking_rate
 
 
 class HttpEngine:
@@ -168,12 +172,40 @@ class ZonosEngine(HttpEngine):
         payload = {"text": to_reading(req.text), "stream": False, "format": "wav", "speaker_embedding_base64": emb_b64, "speaker_mode": "embedding"}
         if req.seed is not None:
             payload["seed"] = req.seed % 4294967296
+        if req.controls:
+            payload["controls"] = dict(req.controls)
+        if req.condition_values:
+            payload["condition_values"] = dict(req.condition_values)
+        if req.control_spans:
+            n = len(payload["text"])
+            for sp in req.control_spans:
+                if not (0 <= sp["start"] < sp["end"] <= n):
+                    raise EngineError(f"句中範圍 {sp['start']}～{sp['end']} 超出這句（{n} 個字）：app 與音訊服務算位置的規則對不上")
+            payload["control_spans"] = [dict(sp) for sp in req.control_spans]
+            if req.control_span_rate:
+                payload["control_span_rate"] = req.control_span_rate
         r = self._req("POST", "/v2/generate", 180, json=payload)
         if r.status_code >= 400:
-            raise EngineError(f"zonos 回 {r.status_code}：{r.text[:300]}")
+            tone = {**(req.controls or {}), **{f"cond.{k}": v for k, v in (req.condition_values or {}).items()}}
+            raise EngineError(f"zonos 回 {r.status_code}：{r.text[:300]}" + (f"（這句的語氣：{tone}）" if tone else ""))
         if not r.content.startswith(b"RIFF"):
             raise EngineError(f"zonos 回傳的不是 WAV（{r.headers.get('content-type')}）")
+        check_not_blank(r.content, payload["text"], req.controls)
         return r.content
+
+
+MIN_SEC_PER_CHAR = 0.08  # Z-02：語氣疊太重時 ZONOS 會出空音（第一輪 0.07 秒／25 字）；正常說話每字約 0.1 秒以上
+
+
+def check_not_blank(wav: bytes, reading: str, controls: dict | None) -> None:
+    """合成結果短到不像在說話（每字不到 0.08 秒）就報錯，不把空音當成功；不自動換 seed 重試（那是 fallback，要使用者同意）"""
+    chars = len("".join(ch for ch in reading if not ch.isspace() and ch not in "、。，．・…！？!?「」『』（）()ー〜～"))
+    if chars < 4:  # 「ふぅ……」這種短句長度本來就不穩，不判
+        return
+    with sf.SoundFile(io.BytesIO(wav)) as f:
+        sec = f.frames / f.samplerate
+    if sec < MIN_SEC_PER_CHAR * chars:
+        raise EngineError(f"zonos 合成結果只有 {sec:.2f} 秒（{chars} 個字），疑似空音" + (f"：這句的語氣 {controls} 可能疊太重，按重試換一次，或到系統核心調低語氣強度" if controls else "：按重試換一次"))
 
 
 class QwenEngine(HttpEngine):

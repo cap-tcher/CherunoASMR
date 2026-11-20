@@ -4,7 +4,9 @@
 // 結構上強制至少一句台詞、音效 id 只能用清單內的（小模型實測會只吐音效、亂編 id）。
 // JSONL 無法用 json_schema 約束，所以用單一物件＋增量解析（lines 每個元素一閉合就吐出）。
 
-export type Voice = 'normal' | 'whisper' | 'breath';
+import { EMOTIONS, SPAN_CLOSE, SPAN_OPEN, SPEEDS, STRENGTHS, SpanFormatError, nearVoice, whisperSpans, type Emotion, type Speed, type Strength } from './tone.ts';
+
+export type Voice = 'normal' | 'soft' | 'whisper' | 'breath';
 export type Side = 'left' | 'center' | 'right';
 
 export interface LineEvent {
@@ -13,6 +15,10 @@ export interface LineEvent {
   zh: string;
   en?: string; // 字幕選 EN 時才要求輸出
   voice: Voice;
+  /** 語氣（ZONOS controls，見 tone.ts）；2026-11-20 前存的台本沒有＝不加 */
+  emotion?: Emotion;
+  strength?: Strength;
+  speed?: Speed;
   pos: { side: Side; distance_cm: number };
 }
 
@@ -24,7 +30,7 @@ export interface SeEvent {
 
 export type SegmentEvent = LineEvent | SeEvent;
 
-export const VOICES: readonly Voice[] = ['normal', 'whisper', 'breath'];
+export const VOICES: readonly Voice[] = ['normal', 'soft', 'whisper', 'breath'];
 export const SIDES: readonly Side[] = ['left', 'center', 'right'];
 
 export interface SegmentSchemaOptions {
@@ -66,6 +72,9 @@ export function segmentSchema(o: SegmentSchemaOptions): object {
       zh: { type: 'string', minLength: 1, maxLength: 80 },
       ...(withEn ? { en: { type: 'string', minLength: 1, maxLength: 120 } } : {}),
       voice: { enum: VOICES },
+      emotion: { enum: EMOTIONS },
+      strength: { enum: STRENGTHS },
+      speed: { enum: SPEEDS },
       pos: {
         type: 'object',
         properties: {
@@ -77,7 +86,7 @@ export function segmentSchema(o: SegmentSchemaOptions): object {
       },
       se: { type: 'array', items: se, maxItems: 2 },
     },
-    required: withEn ? ['ja', 'zh', 'en', 'voice', 'pos', 'se'] : ['ja', 'zh', 'voice', 'pos', 'se'],
+    required: withEn ? ['ja', 'zh', 'en', 'voice', 'emotion', 'strength', 'speed', 'pos', 'se'] : ['ja', 'zh', 'voice', 'emotion', 'strength', 'speed', 'pos', 'se'],
     additionalProperties: false,
   };
   return {
@@ -100,6 +109,8 @@ export class SegmentFormatError extends Error {}
 export interface RubyPart {
   text: string;
   reading?: string;
+  /** 句中耳語《》裡的字（畫面不顯示括號，改用樣式標出） */
+  whisper?: boolean;
 }
 
 const RUBY_RE = /\{([^{}|]+)\|([^{}|]+)\}/g;
@@ -107,13 +118,22 @@ const RUBY_RE = /\{([^{}|]+)\|([^{}|]+)\}/g;
 /** 「{明日|あした}ね」→ [{text:'明日', reading:'あした'}, {text:'ね'}]：字幕用 <ruby> 顯示振假名。 */
 export function rubyParts(ja: string): RubyPart[] {
   const out: RubyPart[] = [];
-  let last = 0;
-  for (const m of ja.matchAll(RUBY_RE)) {
-    if (m.index > last) out.push({ text: ja.slice(last, m.index) });
-    out.push({ text: m[1]!, reading: m[2]! });
-    last = m.index + m[0].length;
+  let whisper = false;
+  // 《》把台詞切成一般／耳語幾塊，每塊再拆振假名
+  for (const chunk of ja.split(new RegExp(`([${SPAN_OPEN}${SPAN_CLOSE}])`))) {
+    if (chunk === SPAN_OPEN || chunk === SPAN_CLOSE) {
+      whisper = chunk === SPAN_OPEN;
+      continue;
+    }
+    let last = 0;
+    const push = (p: RubyPart) => out.push(whisper ? { ...p, whisper: true } : p);
+    for (const m of chunk.matchAll(RUBY_RE)) {
+      if (m.index > last) push({ text: chunk.slice(last, m.index) });
+      push({ text: m[1]!, reading: m[2]! });
+      last = m.index + m[0].length;
+    }
+    if (last < chunk.length) push({ text: chunk.slice(last) });
   }
-  if (last < ja.length) out.push({ text: ja.slice(last) });
   return out;
 }
 
@@ -129,6 +149,15 @@ export function parseLine(v: unknown, seIds: readonly string[]): SegmentEvent[] 
   const stray = /[{}[\]<>"]/.exec(v.ja.replace(/\{[^{}|]+\|[^{}|]+\}/g, ''));
   if (stray) throw new SegmentFormatError(`台詞混進了程式碼標記「${stray[0]}」，這段沒有採用（模型太小時常見，換大一點的模型或按重試）：${v.ja.slice(0, 40)}`);
   if (!VOICES.includes(v.voice as Voice)) throw new SegmentFormatError(`line.voice 不合法：${String(v.voice)}`);
+  try {
+    whisperSpans(v.ja); // 句中耳語《》要成對、不巢狀
+  } catch (e) {
+    if (e instanceof SpanFormatError) throw new SegmentFormatError(`台詞的耳語標記不合法（${e.message}）`);
+    throw e;
+  }
+  if (!EMOTIONS.includes(v.emotion as Emotion)) throw new SegmentFormatError(`line.emotion 不合法：${String(v.emotion)}`);
+  if (!STRENGTHS.includes(v.strength as Strength)) throw new SegmentFormatError(`line.strength 不合法：${String(v.strength)}`);
+  if (!SPEEDS.includes(v.speed as Speed)) throw new SegmentFormatError(`line.speed 不合法：${String(v.speed)}`);
   if (!isObj(pos) || !SIDES.includes(pos.side as Side) || typeof pos.distance_cm !== 'number') {
     throw new SegmentFormatError(`line.pos 不合法：${JSON.stringify(pos)}`);
   }
@@ -138,7 +167,9 @@ export function parseLine(v: unknown, seIds: readonly string[]): SegmentEvent[] 
     if (!SIDES.includes(x.side as Side)) throw new SegmentFormatError(`se.side 不合法：${JSON.stringify(x)}`);
     return { type: 'se', id: x.id, side: x.side as Side };
   });
-  const line: LineEvent = { type: 'line', ja: v.ja, zh: v.zh, voice: v.voice as Voice, pos: { side: pos.side as Side, distance_cm: pos.distance_cm } };
+  const emotion = v.emotion as Emotion;
+  // 位置連動：貼耳（10 公分內）又沒標激動的 normal 句改成小聲（tone.ts nearVoice）
+  const line: LineEvent = { type: 'line', ja: v.ja, zh: v.zh, voice: nearVoice(v.voice as Voice, pos.distance_cm, emotion), emotion, strength: v.strength as Strength, speed: v.speed as Speed, pos: { side: pos.side as Side, distance_cm: pos.distance_cm } };
   if (typeof v.en === 'string' && v.en.trim()) line.en = v.en;
   out.push(line);
   return out;

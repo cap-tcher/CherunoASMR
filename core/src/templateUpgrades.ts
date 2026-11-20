@@ -65,4 +65,14 @@ export const TEMPLATE_UPGRADES: { group: string; key: string; from: string }[] =
     "key": "listener",
     "from": "聽者（角色說話的對象）：{{listener}}"
   },
+  {
+    "group": "segment",
+    "key": "output",
+    "from": "輸出一個 JSON 物件（欄位如下）。\n- lines：{{lineRange}} 句台詞。ja 是{{charName}}對聽者說的日文（ASMR、二人稱、不寫聽者的台詞），難讀的漢字與名字寫成 {漢字|よみ}；{{translation}}；名字與名詞照圖鑑的讀み與譯名；voice 為 normal／whisper（囁き）／breath（吐息）；pos 是聲音在聽者頭部的位置（side：left／center／right，distance_cm：3～200）。\n- se：念這句之前的音效，沒有就給 []；id 只能用 {{seIds}}；side 同上。\n{{stateRule}}\n- actions：3 個聽者接下來可以做或說的事（正體中文，每個 ≤12 字）。\n- memory：這段裡出現、之後值得記得的新事實（正體中文，0～2 條，每條 ≤40 字；沒有就給 []）。"
+  },
+  {
+    "group": "segment",
+    "key": "output",
+    "from": "輸出一個 JSON 物件（欄位如下）。\n- lines：{{lineRange}} 句台詞。ja 是{{charName}}對聽者說的日文（ASMR、二人稱、不寫聽者的台詞），難讀的漢字與名字寫成 {漢字|よみ}；{{translation}}；名字與名詞照圖鑑的讀み與譯名；pos 是聲音在聽者頭部的位置（side：left／center／right，distance_cm：3～200）。\n- 每句的語氣（照台詞內容與距離選，會直接影響念出來的聲音）：\n  - voice：normal（一般音量）／soft（小聲：貼近、溫柔地說）／whisper（囁き：在耳邊說、說秘密、哄睡）／breath（吐息：嘆氣、呼氣、短句）。distance_cm 10 以內不用 normal\n  - emotion：一句只選一個，none／serene（優しい）／relieved（安心）／content（満足）／adoring（甘え）／sad（寂しい）／happy（嬉しい）／cute（可愛く）／embarrassed（照れ）／surprised（驚き）／interested（興味）／sleepy（眠い）／excited（高ぶり：激動、興奮、情緒高漲時用，voice 設 normal）\n  - strength：1 淡、2 濃（情緒明顯時用 2）\n  - speed：normal／slow（ゆっくり）／very_slow（とてもゆっくり：哄睡、睡前）／fast（速め：慌張、興奮）\n  - 語氣要有起伏：同一段不要每句都一樣；氣氛升高時用 excited 或 surprised，安靜下來時換 soft、whisper\n- se：念這句之前的音效，沒有就給 []；id 只能用 {{seIds}}；side 同上。\n{{stateRule}}\n- actions：3 個聽者接下來可以做或說的事（正體中文，每個 ≤12 字）。\n- memory：這段裡出現、之後值得記得的新事實（正體中文，0～2 條，每條 ≤40 字；沒有就給 []）。"
+  },
 ];

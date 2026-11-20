@@ -69,15 +69,15 @@ PICK_SCRIPT = """
 import sys, tkinter as tk
 from tkinter import filedialog
 root = tk.Tk(); root.withdraw(); root.attributes('-topmost', True)
-p = filedialog.askdirectory(parent=root, initialdir=sys.argv[1] or None, title='選擇 CherunoASMR 的存檔區資料夾', mustexist=False)
+p = filedialog.askdirectory(parent=root, initialdir=sys.argv[1] or None, title=sys.argv[2], mustexist=False)
 sys.stdout.write(p or '')
 """
 
 
-def system_pick(initial: Path | None) -> str | None:
+def system_pick(initial: Path | None, title: str = "選擇 CherunoASMR 的存檔區資料夾") -> str | None:
     """開系統的選資料夾視窗；回傳選的路徑，取消回 None"""
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    p = subprocess.run([sys.executable, "-c", PICK_SCRIPT, str(initial or "")], capture_output=True, timeout=1800, env=env)
+    p = subprocess.run([sys.executable, "-c", PICK_SCRIPT, str(initial or ""), title], capture_output=True, timeout=1800, env=env)
     if p.returncode != 0:
         raise HTTPException(500, f"開不了選資料夾視窗：{p.stderr.decode('utf-8', 'replace')[-300:]}")
     out = p.stdout.decode("utf-8").strip()

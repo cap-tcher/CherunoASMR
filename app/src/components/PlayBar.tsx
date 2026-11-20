@@ -71,7 +71,7 @@ export function PlayBar(props: { data: AppData; update: (f: (d: AppData) => AppD
           <>
             <div className="mini">
               <span lang="ja" className="ja">
-                {s.playing ? s.playing.ev.ja.replace(/\{([^{}|]+)\|[^{}|]+\}/g, '$1') : s.paused ? '已暫停' : '目前沒有在念'}
+                {s.playing ? s.playing.ev.ja.replace(/\{([^{}|]+)\|[^{}|]+\}/g, '$1').replace(/[《》]/g, '') : s.paused ? '已暫停' : '目前沒有在念'}
               </span>
               <span className="hint">
                 {name}，第 {s.panel.n} 段，{s.paused ? '已暫停' : s.playing ? '播放中' : status}

@@ -15,6 +15,7 @@ CherunoASMR 本身是 MIT 授權（見 `LICENSE`）。下面這些不在這個 r
 | Node.js | 跑 app | MIT | https://nodejs.org |
 | uv | 安裝 Python 與套件 | MIT／Apache-2.0 | https://github.com/astral-sh/uv |
 | fugashi＋unidic-lite | 參考範例（RAG）的日文斷詞 | fugashi：MIT；unidic-lite：MIT（內含的 UniDic 辭典：BSD-3-Clause／GPL／LGPL 三擇一） | https://github.com/polm/fugashi 、https://github.com/polm/unidic-lite |
+| Codex CLI（使用者自行安裝，選用） | 用 Codex 當 LLM | Apache-2.0 | https://github.com/openai/codex |
 | bge-m3（使用者在 LM Studio 自行下載，選用） | 參考範例的向量檢索 | MIT | https://huggingface.co/BAAI/bge-m3 |
 
 app 與音訊服務用到的 npm、Python 套件列在 `package-lock.json`、`audio/uv.lock`、`tts/qwen/uv.lock`。

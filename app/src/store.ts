@@ -1,4 +1,4 @@
-import { type StateField, DEFAULT_TEMPLATES, TEMPLATE_UPGRADES, validateManual, type Chapter, type CharacterCard, type GlossaryEntry, type PanelBlock, type PromptTemplates, type Protagonist, type SecretFormat, type Snapshot } from '@cheruno/core';
+import { type StateField, type ZonosToneTable, withToneDefaults, DEFAULT_TEMPLATES, TEMPLATE_UPGRADES, validateManual, type Chapter, type CharacterCard, type GlossaryEntry, type PanelBlock, type PromptTemplates, type Protagonist, type SecretFormat, type Snapshot } from '@cheruno/core';
 import { useEffect, useRef, useState } from 'react';
 
 export type Engine = 'irodori' | 'zonos' | 'qwen-comfy';
@@ -105,6 +105,7 @@ export interface AppData {
   statDefs: string; // 數值與狀態定義（文字，每段帶）
   secretTemplate: string; // 秘密生成格式：建立角色時依此寫角色的秘密
   layout: PanelBlock[]; // 面板版面
+  zonosTone: ZonosToneTable; // 語氣 → ZONOS controls 的對照表（系統核心 › 生成方式 › 語氣對照；[[PLAN_ZONOS語氣控制]] Z-05）
   tone: string;
   ui: { panel: boolean; sub: SubLang; ruby: boolean; mode: ModeKey; intimacy: boolean };
 }
@@ -179,6 +180,7 @@ export const DEFAULT_DATA: AppData = {
   rulesName: '睡前陪伴（預設）',
   secretTemplate: '- 不說出口的心事\n- 在意聽者的哪一點\n- 一個小習慣或小秘密',
   layout: [],
+  zonosTone: withToneDefaults(undefined),
   secretFormat: {
     fields: [
       { key: 'affection', label: '好感度', type: 'number', min: 0, max: 100, maxDelta: 8, initial: 60 },
@@ -264,6 +266,7 @@ export function migrate(d: AppData): AppData {
   for (const c of d.characters) c.callName ??= oldCall ?? '';
   delete (d.protagonist as Protagonist & { callName?: string }).callName;
   d.clock ??= { on: true, start: '00:00' }; // 故事時鐘是 2026-11-19 新增的設定
+  d.zonosTone = withToneDefaults(d.zonosTone); // 語氣對照表是 2026-11-20 新增的；之後新增的格也補上
   d.protagonist.appearance ??= '';
   return d;
 }

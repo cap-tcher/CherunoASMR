@@ -13,7 +13,7 @@ function fakeLlm(seenStates: string[]): typeof fetch {
     const body = JSON.parse(String(init.body)) as { messages: { content: string }[] };
     seenStates.push(/好感度: [^\n]*/.exec(body.messages[0]!.content)![0]);
     const out = {
-      lines: [1, 2, 3].map((i) => ({ ja: `台詞${i}`, zh: `譯文${i}`, voice: 'normal', pos: { side: 'center', distance_cm: 30 }, se: [] })),
+      lines: [1, 2, 3].map((i) => ({ ja: `台詞${i}`, zh: `譯文${i}`, voice: 'normal', emotion: 'none', strength: 1, speed: 'normal', pos: { side: 'center', distance_cm: 30 }, se: [] })),
       state: { mio: { affection: 100 } },
       actions: ['a', 'b', 'c'],
       memory: ['期末報告週五要交'],
@@ -91,7 +91,7 @@ describe('一般模式（不輸出 state）', () => {
     let schema: { properties: Record<string, unknown>; required: string[] } | null = null;
     const noState = (async (_u: string, init: RequestInit) => {
       schema = JSON.parse(String(init.body)).response_format.json_schema.schema;
-      const out = { lines: [1, 2, 3].map((i) => ({ ja: `台詞${i}`, zh: `譯文${i}`, voice: 'normal', pos: { side: 'center', distance_cm: 30 }, se: [] })), actions: ['a', 'b', 'c'], memory: [] };
+      const out = { lines: [1, 2, 3].map((i) => ({ ja: `台詞${i}`, zh: `譯文${i}`, voice: 'normal', emotion: 'none', strength: 1, speed: 'normal', pos: { side: 'center', distance_cm: 30 }, se: [] })), actions: ['a', 'b', 'c'], memory: [] };
       return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(out) } }] })}
 
 data: [DONE]
@@ -113,7 +113,7 @@ describe('秘密自動生成（ADV3.0 F-64）', () => {
     const mk = (withSecret: boolean, seen: { schema?: { required: string[] } }) =>
       (async (_u: string, init: RequestInit) => {
         seen.schema = JSON.parse(String(init.body)).response_format.json_schema.schema;
-        const out = { lines: [1, 2, 3].map((i) => ({ ja: `台詞${i}`, zh: `譯文${i}`, voice: 'normal', pos: { side: 'center', distance_cm: 30 }, se: [] })), state: { mio: { affection: 12 } }, actions: ['a', 'b', 'c'], memory: [], ...(withSecret ? { secret: '其實一直在等你敲門' } : {}) };
+        const out = { lines: [1, 2, 3].map((i) => ({ ja: `台詞${i}`, zh: `譯文${i}`, voice: 'normal', emotion: 'none', strength: 1, speed: 'normal', pos: { side: 'center', distance_cm: 30 }, se: [] })), state: { mio: { affection: 12 } }, actions: ['a', 'b', 'c'], memory: [], ...(withSecret ? { secret: '其實一直在等你敲門' } : {}) };
         return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(out) } }] })}
 
 data: [DONE]
@@ -138,7 +138,7 @@ describe('狀態另外問一次（stateSeparately）', () => {
       const schema = body.response_format.json_schema.schema;
       seen.push({ schema, last: body.messages[body.messages.length - 1]!, roles: body.messages.map((m) => m.role) });
       const out = 'lines' in schema.properties
-        ? { lines: [1, 2, 3].map((i) => ({ ja: `台詞${i}`, zh: `譯文${i}`, voice: 'normal', pos: { side: 'center', distance_cm: 30 }, se: [] })), actions: ['a', 'b', 'c'], memory: [] }
+        ? { lines: [1, 2, 3].map((i) => ({ ja: `台詞${i}`, zh: `譯文${i}`, voice: 'normal', emotion: 'none', strength: 1, speed: 'normal', pos: { side: 'center', distance_cm: 30 }, se: [] })), actions: ['a', 'b', 'c'], memory: [] }
         : { state: { mio: { affection: 13 } } };
       return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(out) } }] })}\n\ndata: [DONE]\n\n`, { status: 200 });
     }) as unknown as typeof fetch;
@@ -177,7 +177,7 @@ describe('狀態另外問一次（stateSeparately）', () => {
 });
 
 describe('斷線重連', () => {
-  const lineOut = (tag: string) => ({ lines: [1, 2, 3].map((i) => ({ ja: `${tag}${i}`, zh: `譯${i}`, voice: 'normal', pos: { side: 'center', distance_cm: 30 }, se: [] })), actions: ['a', 'b', 'c'], memory: [] });
+  const lineOut = (tag: string) => ({ lines: [1, 2, 3].map((i) => ({ ja: `${tag}${i}`, zh: `譯${i}`, voice: 'normal', emotion: 'none', strength: 1, speed: 'normal', pos: { side: 'center', distance_cm: 30 }, se: [] })), actions: ['a', 'b', 'c'], memory: [] });
   const sse = (obj: unknown) => `data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(obj) } }] })}\n\ndata: [DONE]\n\n`;
   /** 假 LM Studio：/models 永遠 200；chat 照 plan 依序回（'broken'＝先送一句台詞再丟引擎錯誤） */
   function flaky(plan: ('broken' | 'ok' | 'badRequest')[], log: string[]): typeof fetch {

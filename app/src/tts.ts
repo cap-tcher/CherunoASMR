@@ -15,8 +15,12 @@ export async function audioHealth(base: string): Promise<AudioHealth> {
 export interface SynthRequest {
   engine: string;
   text: string;
-  voice: 'normal' | 'whisper' | 'breath';
+  voice: 'normal' | 'soft' | 'whisper' | 'breath';
   speaker: string;
+  controls?: Record<string, number>; // ZONOS：語氣（core tone.ts zonosControls）
+  control_spans?: { start: number; end: number; controls: Record<string, number> }[]; // ZONOS：句中耳語《》
+  control_span_rate?: number;
+  condition_values?: Record<string, number>; // ZONOS：整句的響度 loudness／頻寬 fmax／語速 speaking_rate
   caption?: string;
   seed?: number;
   num_steps?: number; // Irodori 取樣步數

@@ -224,3 +224,81 @@ def test_zonos_unknown_voice_explains_how_to_fix():
     r = make_client(zonos_server([])).post("/tts", json={"engine": "zonos", "text": "a", "speaker": "nobody"})
     assert r.status_code == 502
     assert "重新設計並鎖定聲音" in r.json()["detail"]
+
+
+def _zonos_with(calls: list, seconds: float):
+    def handler(req: httpx.Request):
+        body = json.loads(req.content) if req.content else None
+        calls.append((req.method, req.url.path, None, body))
+        if req.url.path == "/v2/generate":
+            return httpx.Response(200, content=wav_bytes(seconds), headers={"content-type": "audio/wav"})
+        return zonos_server([])(req)
+
+    return handler
+
+
+def _register(c):
+    z = {"engine": "zonos", "voice_id": "tone_z", "wav_base64": base64.b64encode(wav_bytes()).decode()}
+    assert c.post("/voice/register", json=z).status_code == 200
+
+
+def test_zonos_controls_pass_through():
+    """語氣（core tone.ts 換算的 controls）原樣交給 ZONOS；沒給就不帶這個欄位"""
+    calls: list = []
+    c = make_client(_zonos_with(calls, 3.0))
+    _register(c)
+    ctl = {"delivery.whisper": 3, "emotions.adoring": 2}
+    assert c.post("/tts", json={"engine": "zonos", "text": "ねえ、今日もお疲れさま。", "speaker": "tone_z", "voice": "whisper", "controls": ctl}).status_code == 200
+    assert c.post("/tts", json={"engine": "zonos", "text": "ねえ、今日もお疲れさま。", "speaker": "tone_z"}).status_code == 200
+    gens = [b for _, p, _, b in calls if p == "/v2/generate"]
+    assert gens[0]["controls"] == ctl and "controls" not in gens[1]
+
+
+def test_zonos_controls_validated():
+    c = make_client(_zonos_with([], 3.0))
+    bad = c.post("/tts", json={"engine": "zonos", "text": "a", "speaker": "x", "controls": {"rm -rf": 1}})
+    assert bad.status_code == 422
+    assert c.post("/tts", json={"engine": "zonos", "text": "a", "speaker": "x", "controls": {"delivery.whisper": 99}}).status_code == 422
+
+
+def test_zonos_blank_output_is_error():
+    """語氣疊太重時 ZONOS 會出空音：每字不到 0.08 秒就報錯（不當成功、不自動重試）；短句不判"""
+    calls: list = []
+    c = make_client(_zonos_with(calls, 0.2))
+    _register(c)
+    r = c.post("/tts", json={"engine": "zonos", "text": "ねえ、今日もお疲れさま。ゆっくり休んでいいからね。", "speaker": "tone_z", "controls": {"delivery.whisper": 4}})
+    assert r.status_code == 502 and "疑似空音" in r.json()["detail"] and "delivery.whisper" in r.json()["detail"]
+    assert c.post("/tts", json={"engine": "zonos", "text": "ふぅ……", "speaker": "tone_z"}).status_code == 200
+
+
+def test_irodori_soft_uses_whisper_prefix():
+    assert irodori_text("おやすみ", "soft") == "👂おやすみ"
+
+
+def test_span_marks_stripped_and_spans_passed():
+    """句中耳語《》：念的文字與字幕拿掉括號；範圍（app 依 core whisperSpans 算）原樣交給 ZONOS，超出這句就報錯"""
+    assert to_reading("ねえ、《{今日|きょう}はここまで》ね") == "ねえ、きょうはここまでね"
+    assert to_surface("ねえ、《{今日|きょう}は》ね") == "ねえ、今日はね"
+    calls: list = []
+    c = make_client(_zonos_with(calls, 3.0))
+    _register(c)
+    sp = [{"start": 3, "end": 11, "controls": {"delivery.whisper": 3}}]
+    r = c.post("/tts", json={"engine": "zonos", "text": "ねえ、《{今日|きょう}はここまで》ね", "speaker": "tone_z", "control_spans": sp, "control_span_rate": 3})
+    assert r.status_code == 200, r.text
+    gen = [b for _, p, _, b in calls if p == "/v2/generate"][-1]
+    assert gen["text"] == "ねえ、きょうはここまでね" and gen["control_spans"] == sp and gen["control_span_rate"] == 3
+    bad = c.post("/tts", json={"engine": "zonos", "text": "ねえ", "speaker": "tone_z", "control_spans": [{"start": 0, "end": 9, "controls": {"delivery.whisper": 3}}]})
+    assert bad.status_code == 502 and "超出這句" in bad.json()["detail"]
+
+
+def test_zonos_condition_values_pass_through_and_validated():
+    """整句的條件（響度、頻寬、語速）原樣交給 ZONOS；名稱與範圍不對就 422"""
+    calls: list = []
+    c = make_client(_zonos_with(calls, 3.0))
+    _register(c)
+    r = c.post("/tts", json={"engine": "zonos", "text": "ねえ、今日もお疲れさま。", "speaker": "tone_z", "controls": {"delivery.whisper": 3}, "condition_values": {"loudness": -29}})
+    assert r.status_code == 200, r.text
+    gen = [b for _, p, _, b in calls if p == "/v2/generate"][-1]
+    assert gen["condition_values"] == {"loudness": -29} and gen["controls"] == {"delivery.whisper": 3}
+    assert c.post("/tts", json={"engine": "zonos", "text": "a", "speaker": "tone_z", "condition_values": {"loudness": -50}}).status_code == 422
+    assert c.post("/tts", json={"engine": "zonos", "text": "a", "speaker": "tone_z", "condition_values": {"pitch": 3}}).status_code == 422

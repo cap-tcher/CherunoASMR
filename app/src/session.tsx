@@ -19,6 +19,11 @@ import {
   buildRagQuery,
   fitReferences,
   type RagReference,
+  controlsKey,
+  zonosControls,
+  zonosSpans,
+  splitControls,
+  SPAN_RATE,
 } from '@cheruno/core';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { endpointOf, type AppData, type Character } from './store.ts';
@@ -495,14 +500,21 @@ export function SessionRoot(props: {
     patchLine(next.key, { status: 'synth' });
     const v = ch.voice;
     const vt = data.templates.voice;
-    const style = next.ev.voice === 'whisper' ? vt.qwenWhisper : next.ev.voice === 'breath' ? vt.qwenBreath : vt.qwenNormal;
+    const style = next.ev.voice === 'whisper' || next.ev.voice === 'soft' ? vt.qwenWhisper : next.ev.voice === 'breath' ? vt.qwenBreath : vt.qwenNormal;
+    // ZONOS：語氣換成 controls（[[PLAN_ZONOS語氣控制]]）；語音庫 key 的語氣欄一併帶上，換語氣就是另一個檔
+    const controls = v.engine === 'zonos' ? zonosControls(next.ev, data.zonosTone) : {};
+    const spans = v.engine === 'zonos' ? zonosSpans(next.ev, data.zonosTone) : []; // 句中耳語《》
+    const ck = controlsKey(controls) + (spans.length ? `|spans:${spans.map((x) => `${x.start}-${x.end}:${controlsKey(x.controls)}`).join(';')}` : '');
     // 語音庫：同一組參數（含 Qwen 的語氣後綴）＝同一個 key；庫裡有就直接用，沒有才合成，合成完存進庫
-    const params: VoiceParams = { engine: v.engine, speaker: v.engine === 'qwen-comfy' ? `${v.speaker}｜${style}` : v.speaker, seed: v.seed, steps: v.engine === 'irodori' ? s.irodoriSteps : null, voice: next.ev.voice, text: next.ev.ja };
+    const params: VoiceParams = { engine: v.engine, speaker: v.engine === 'qwen-comfy' ? `${v.speaker}｜${style}` : v.speaker, seed: v.seed, steps: v.engine === 'irodori' ? s.irodoriSteps : null, voice: ck ? `${next.ev.voice}#${ck}` : next.ev.voice, text: next.ev.ja };
     (async () => {
       const key = await voiceKey(params);
       const cached = await fetchAsset('voice', key);
       if (cached) return patchLine(next.key, { status: 'ready', url: URL.createObjectURL(cached), voiceKey: key });
-      const r = await synthesize(s.audioBase, { engine: v.engine, text: next.ev.ja, voice: next.ev.voice, speaker: v.speaker, seed: v.seed, ...(v.engine === 'qwen-comfy' ? { style } : {}), ...(v.engine === 'irodori' ? { num_steps: s.irodoriSteps } : {}) });
+      const r = await synthesize(s.audioBase, { engine: v.engine, text: next.ev.ja, voice: next.ev.voice, speaker: v.speaker, seed: v.seed, ...(() => {
+        const sc = splitControls(controls);
+        return { ...(Object.keys(sc.controls).length ? { controls: sc.controls } : {}), ...(Object.keys(sc.conditionValues).length ? { condition_values: sc.conditionValues } : {}) };
+      })(), ...(spans.length ? { control_spans: spans, control_span_rate: SPAN_RATE } : {}), ...(v.engine === 'qwen-comfy' ? { style } : {}), ...(v.engine === 'irodori' ? { num_steps: s.irodoriSteps } : {}) });
       patchLine(next.key, { status: 'ready', url: r.url, voiceKey: key });
       await putVoice(key, params, r.blob).catch((e: unknown) => toast(`這句的語音沒存進語音庫（重新整理後要重新合成）：${e instanceof Error ? e.message : String(e)}`, true));
     })()

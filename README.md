@@ -2,7 +2,8 @@
 
 用 LLM 即時寫日文 ASMR 台本、用本機語音合成念出來的 Windows app。角色、世界觀、規則都自己設定；每一段台詞附中文翻譯與角色狀態。
 
-- 台本：本機 LLM（LM Studio）或雲端 API（Claude、Gemini、OpenAI，自己填金鑰）
+- 台本：本機 LLM（LM Studio）、雲端 API（Claude、Gemini、OpenAI，自己填金鑰），或本機的 Codex CLI
+- 語氣：每句台詞的音量（一般／小聲／耳語／吐息）、情緒、速度與句中耳語，念的時候交給 ZONOS（系統核心 › 生成方式 › 語氣對照 可調）
 - 語音：ZONOS3-Mini（每句即時合成）、Qwen3-TTS VoiceDesign（用文字描述設計角色的聲音）
 - 全部東西放在這個資料夾裡：執行環境、模型、存檔都不會裝到別的地方（LM Studio 例外）
 
@@ -36,9 +37,19 @@
 1. 系統核心 › 連線 › LLM：
    - LM Studio：按「LM Studio」快速填入 → 「連線」→ 選模型
    - 雲端：按「Claude」「Gemini」或「OpenAI」快速填入，把自己的 API key 貼到「API key」→ 「連線」→ 選模型。金鑰只存在 `data\settings.json`，不會進備份檔
+   - Codex：見下面「用 Codex 當 LLM」
 2. 系統核心 › 連線 › 語音合成：選 ZONOS → 「連線」
 3. 建立角色：寫聲音描述 → 用 Qwen 產生候選 → 鎖定（ZONOS 會用鎖定的候選當角色的聲音）
 4. 聆聽：開始
+
+## 用 Codex 當 LLM
+
+1. 先安裝 [Codex CLI](https://github.com/openai/codex) 並登入（終端機執行 `codex` 照提示登入）
+2. 系統核心 › 連線 › LLM：按「Codex（經本機音訊服務）」快速填入 → 「連線」
+3. 「Codex 設定資料夾」：選要用的 CODEX_HOME（不選就用 Codex 自己的預設），可以檢查登入狀態
+- 每個請求都由本機音訊服務執行一次 `codex exec`：空的暫存資料夾、唯讀沙盒、關掉執行指令的工具
+- 每段大約 10～20 秒，台詞整段一起出現（不會一字一字串流）
+- 沒裝 Codex 時按「連線」會顯示「找不到 codex 指令」，不影響其他功能
 
 ## 參考範例（RAG）
 

@@ -13,3 +13,4 @@ export * from './glossary.ts';
 export * from './scriptTrack.ts';
 export * from './rag.ts';
 export * from './stateText.ts';
+export * from './tone.ts';

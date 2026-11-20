@@ -59,6 +59,7 @@ export function AiFlow(props: { data: AppData }) {
   const im = data.ui.intimacy;
   const ctxN = im ? s.contextIntimacy : s.contextNormal;
   const viaClaude = s.llmBase.includes('/claude/');
+  const viaCodex = s.llmBase.includes('/codex/');
   const fields = data.secretFormat.fields;
   const sub = data.ui.sub === 'off' ? '不要字幕' : data.ui.sub === 'en' ? 'EN' : '繁中';
 
@@ -112,7 +113,7 @@ export function AiFlow(props: { data: AppData }) {
       <Step
         n="3"
         title="LLM 生成"
-        where={viaClaude ? `${s.llmBase} → Anthropic API` : s.llmBase}
+        where={viaClaude ? `${s.llmBase} → Anthropic API` : viaCodex ? `${s.llmBase} → codex exec` : s.llmBase}
         input={[
           { k: 'messages' },
           { k: 'response_format', v: 'json_schema（strict）' },
@@ -121,7 +122,7 @@ export function AiFlow(props: { data: AppData }) {
           { k: '關掉思考', v: s.noThinking ? 'reasoning_effort: none' : '不送', off: !s.noThinking },
         ]}
         process={[
-          { k: viaClaude ? '音訊服務的 Claude 代理' : 'OpenAI 相容端點', v: viaClaude ? '轉成 Anthropic Messages API，金鑰取自連線設定' : '本機（LM Studio 等）' },
+          { k: viaClaude ? '音訊服務的 Claude 代理' : viaCodex ? '音訊服務的 Codex 代理' : 'OpenAI 相容端點', v: viaClaude ? '轉成 Anthropic Messages API，金鑰取自連線設定' : viaCodex ? '每段跑一次 codex exec：空的暫存資料夾、唯讀沙盒、關掉執行指令的工具' : '本機（LM Studio 等）' },
           { k: '串流', v: '120 秒沒資料就報錯可重試' },
         ]}
         output={[

@@ -6,12 +6,15 @@ const SE = ['breath_blow', 'rain'] as const;
 const sample = JSON.stringify(
   {
     lines: [
-      { ja: 'おかえり……今日も{頑張|がんば}ったね', zh: '歡迎回來……今天也辛苦了', voice: 'whisper', pos: { side: 'left', distance_cm: 10 }, se: [] },
+      { ja: 'おかえり……今日も{頑張|がんば}ったね', zh: '歡迎回來……今天也辛苦了', voice: 'whisper', emotion: 'adoring', strength: 1, speed: 'slow', pos: { side: 'left', distance_cm: 10 }, se: [] },
       // 字串裡放 } ] " \\ 與 key 形狀的文字，測解析器不會被騙
       {
         ja: '「}]」って書いてある……"}" "]" \\ {"lines":[',
         zh: '上面寫著「}]」……"呵呵"\\',
         voice: 'normal',
+        emotion: 'none',
+        strength: 1,
+        speed: 'normal',
         pos: { side: 'right', distance_cm: 30 },
         se: [{ id: 'breath_blow', side: 'right' }],
       },
@@ -78,12 +81,30 @@ describe('SegmentStreamParser', () => {
 });
 
 describe('parseLine', () => {
-  const ok = { ja: 'a', zh: 'b', voice: 'normal', pos: { side: 'left', distance_cm: 5 }, se: [{ id: 'rain', side: 'center' }] };
+  const ok = { ja: 'a', zh: 'b', voice: 'normal', emotion: 'none', strength: 1, speed: 'normal', pos: { side: 'left', distance_cm: 50 }, se: [{ id: 'rain', side: 'center' }] };
   it('展開成「音效…、台詞」', () => {
     expect(parseLine(ok, SE)).toEqual([
       { type: 'se', id: 'rain', side: 'center' },
-      { type: 'line', ja: 'a', zh: 'b', voice: 'normal', pos: { side: 'left', distance_cm: 5 } },
+      { type: 'line', ja: 'a', zh: 'b', voice: 'normal', emotion: 'none', strength: 1, speed: 'normal', pos: { side: 'left', distance_cm: 50 } },
     ]);
+  });
+  it('貼耳（10 公分內）的 normal 句改成小聲；激動的情緒不壓', () => {
+    const near = { ...ok, pos: { side: 'left', distance_cm: 5 } };
+    expect((parseLine(near, SE).at(-1) as { voice: string }).voice).toBe('soft');
+    expect((parseLine({ ...near, emotion: 'excited' }, SE).at(-1) as { voice: string }).voice).toBe('normal');
+    expect((parseLine({ ...near, voice: 'whisper' }, SE).at(-1) as { voice: string }).voice).toBe('whisper');
+  });
+  it('句中耳語《》沒成對時丟錯；成對的照常', () => {
+    expect(() => parseLine({ ...ok, ja: 'ねえ、《ひみつ' }, SE)).toThrow('耳語標記不合法');
+    expect(() => parseLine({ ...ok, ja: 'ねえ、《ひみつ》だよ' }, SE)).not.toThrow();
+  });
+  it('rubyParts：《》不顯示，裡面的字標成耳語', () => {
+    expect(rubyParts('ねえ、《{今日|きょう}は》ね')).toEqual([{ text: 'ねえ、' }, { text: '今日', reading: 'きょう', whisper: true }, { text: 'は', whisper: true }, { text: 'ね' }]);
+  });
+  it('emotion／strength／speed 不合法時丟錯，不猜預設值', () => {
+    expect(() => parseLine({ ...ok, emotion: 'angry' }, SE)).toThrow('line.emotion 不合法');
+    expect(() => parseLine({ ...ok, strength: 3 }, SE)).toThrow('line.strength 不合法');
+    expect(() => parseLine({ ...ok, speed: 'turbo' }, SE)).toThrow('line.speed 不合法');
   });
   it('voice 不合法時丟錯，不猜預設值', () => {
     expect(() => parseLine({ ...ok, voice: 'loud' }, SE)).toThrow(SegmentFormatError);
@@ -138,7 +159,7 @@ describe('SegmentStreamParser：actions', () => {
 });
 
 describe('台詞混進程式碼標記（2026-11-19 實測小模型）', () => {
-  const base = { zh: '譯', voice: 'normal', pos: { side: 'left', distance_cm: 10 }, se: [] };
+  const base = { zh: '譯', voice: 'normal', emotion: 'none', strength: 1, speed: 'normal', pos: { side: 'left', distance_cm: 10 }, se: [] };
   it('振假名的大括號合法；其他 ASCII 括號、角括號、雙引號拒收', () => {
     expect(() => parseLine({ ...base, ja: '{頑張|がんば}ったね' }, [])).not.toThrow();
     expect(() => parseLine({ ...base, ja: 'あなたも疲れちゃったね。」]   </lines>' }, [])).toThrow(SegmentFormatError);

@@ -15,7 +15,8 @@ from functools import lru_cache
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-LOCAL_FILE = REPO / "cheruno.local.json"
+# 測試用：CHERUNO_LOCAL_FILE 指另一份設定（隔離環境把聲音、索引等資料夾指到暫存區，不碰開發機真正的資料夾）
+LOCAL_FILE = Path(os.environ["CHERUNO_LOCAL_FILE"]) if os.environ.get("CHERUNO_LOCAL_FILE") else REPO / "cheruno.local.json"
 
 
 def _defaults() -> dict[str, Path]:

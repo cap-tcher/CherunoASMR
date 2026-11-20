@@ -1,4 +1,5 @@
 // 系統核心（V4：頁面＋左側子導覽）。秘密規則可匯入匯出（ADV3.0 配置／存檔只取規則相關欄位）；提示詞分頁列出程式裡全部的提示詞。
+import { ToneTable } from '../components/ToneTable.tsx';
 import { useSession } from '../session.tsx';
 import {
   DEFAULT_TEMPLATES,
@@ -27,6 +28,7 @@ import {
 } from '@cheruno/core';
 import { useEffect, useRef, useState } from 'react';
 import { AiFlow } from '../components/AiFlow.tsx';
+import { CodexHomePicker } from '../components/CodexHomePicker.tsx';
 import { Check, Field, Outline, Sec, type OutlineCat } from '../components/Outline.tsx';
 import { FieldRow, blankField } from '../components/FieldEditor.tsx';
 import { RequestLog } from '../components/RequestLog.tsx';
@@ -418,7 +420,7 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
 
   const cats: OutlineCat<SysTab>[] = [
     { k: 'conn', ...CAT_INFO.conn, note: s.model ? '已設定' : '未設定', sections: [{ id: 'conn-llm', label: 'LLM' }, { id: 'conn-tts', label: '語音合成' }] },
-    { k: 'gen', ...CAT_INFO.gen, sections: [{ id: 'gen-lines', label: '每段長度' }, { id: 'gen-context', label: '上下文' }, { id: 'gen-state', label: '狀態更新' }, { id: 'gen-clock', label: '故事時鐘' }, { id: 'gen-rag', label: '參考範例' }, { id: 'gen-sleep', label: '睡眠模式' }] },
+    { k: 'gen', ...CAT_INFO.gen, sections: [{ id: 'gen-lines', label: '每段長度' }, { id: 'gen-context', label: '上下文' }, { id: 'gen-state', label: '狀態更新' }, { id: 'gen-clock', label: '故事時鐘' }, { id: 'gen-rag', label: '參考範例' }, { id: 'gen-tone', label: '語氣對照' }, { id: 'gen-sleep', label: '睡眠模式' }] },
     { k: 'prompt', ...CAT_INFO.prompt, sections: [{ id: 'prompt-system', label: '系統核心規則' }, { id: 'prompt-opening', label: '開場劇本' }] },
     { k: 'intimacy', ...CAT_INFO.intimacy, note: data.rulesName, sections: [{ id: 'int-prompt', label: '親密模式提示詞' }, { id: 'int-defs', label: '狀態定義' }, { id: 'int-fields', label: '欄位表' }, { id: 'int-layout', label: '面板版面' }, { id: 'int-file', label: '規則設定檔' }] },
     { k: 'templates', ...CAT_INFO.templates, note: tplDirty ? '未儲存' : '', sections: tplSections.map((x) => ({ id: x.id, label: x.label })) },
@@ -461,6 +463,9 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
                   <button type="button" className="btn sm" onClick={() => setS('llmBase', `${s.audioBase.replace(/\/+$/, '')}/claude/v1`)}>
                     Claude（經本機音訊服務）
                   </button>
+                  <button type="button" className="btn sm" title="用本機的 Codex CLI（要先安裝並登入）；用哪個 CODEX_HOME 在下面的「Codex 設定資料夾」選。每段在獨立的唯讀沙盒跑、不能執行指令，約 10 秒一段、不逐字串流" onClick={() => setS('llmBase', `${s.audioBase.replace(/\/+$/, '')}/codex/v1`)}>
+                    Codex（經本機音訊服務）
+                  </button>
                   <button type="button" className="btn sm" title="Google AI Studio 的金鑰（aistudio.google.com/apikey）填到下面的 API key，再按「連線」選模型" onClick={() => setS('llmBase', GEMINI_BASE)}>
                     Gemini
                   </button>
@@ -472,9 +477,14 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
               <Field label="Base URL">
                 <input className="input" value={s.llmBase} onChange={(e) => setS('llmBase', e.target.value)} />
               </Field>
-              <Field label="API key" hint="本機模型留空；Claude 填 Anthropic 金鑰。存在存檔區的 settings.json，匯出備份時不帶。">
+              <Field label="API key" hint="本機模型與 Codex 留空；Claude 填 Anthropic 金鑰。存在存檔區的 settings.json，匯出備份時不帶。">
                 <input className="input" type="password" value={s.apiKey} onChange={(e) => setS('apiKey', e.target.value)} />
               </Field>
+              {s.llmBase.includes('/codex/') && (
+                <Field as="div" label="Codex 設定資料夾" hint="Codex 連線用哪個 CODEX_HOME（登入資訊、模型、指示檔都在裡面）；這台電腦的所有存檔共用。">
+                  <CodexHomePicker audioBase={s.audioBase} />
+                </Field>
+              )}
               <Field as="div" label="連線" hint={isLocalLms(s.llmBase) ? '本機 LM Studio：按下才開 LM Studio server、讀模型清單、把選的模型載入顯存（其他模型卸載）。' : '雲端或其他端點：測試連線；LM Studio 有載入模型的話會卸載，顯存留給 TTS。'}>
                 <div className="lin-actions">
                   <button type="button" className="btn primary" onClick={() => void connectLlm()} disabled={testing || !!serverLoad} title={serverLoad ? `正在載入 ${serverLoad.model}：先取消或等它好` : undefined}>
@@ -727,6 +737,10 @@ export function SystemPage(props: { data: AppData; update: (f: (d: AppData) => A
               </div>
             </Sec>
             )}
+
+            <Sec id="gen-tone" title="語氣對照（ZONOS）" desc="台本每句標的語氣（音量、速度、情緒、句中耳語）換成 ZONOS 的控制，每格寫成「類別.方向=強度」。預設值來自試聽量測：音高不超過原聲約 +40%、不會出錯或空音。改了從下一句起生效；已經合成過的句子留在語音庫裡照舊。只有 ZONOS 用得到。">
+              <ToneTable value={data.zonosTone} onChange={(t) => update((d) => ({ ...d, zonosTone: t }))} />
+            </Sec>
 
             <Sec id="gen-sleep" title="睡眠模式" desc="播放列選「睡眠」時：照時長慢慢收尾。">
               <Field label="時長（分鐘）">
